@@ -19,3 +19,15 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+      # Токены для импорта прямо из админки (кнопки «Обновить»).
+      # Секреты вводятся в интерфейсе Render (Environment), значений в репозитории нет.
+      - key: YANDEX_METRIKA_TOKEN
+        sync: false
+      - key: TOPVISOR_USER_ID
+        sync: false
+      - key: TOPVISOR_API_KEY
+        sync: false
+      - key: TOPVISOR_PROJECT_ID
+        sync: false
+      - key: TOPVISOR_REGION_INDEX
+        value: "1"
