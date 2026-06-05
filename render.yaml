@@ -5,7 +5,9 @@ services:
     name: seo-dashboard-easypay
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    # --include=dev обязателен: при NODE_ENV=production npm пропускает
+    # devDependencies (tailwind, typescript), а они нужны для сборки.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start
     envVars:
       # Значения вводятся в интерфейсе Render при деплое (секреты не в репозитории)
