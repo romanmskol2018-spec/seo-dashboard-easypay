@@ -1,0 +1,83 @@
+// Prisma schema for SEO Analytics Dashboard
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Пользователи админки (вход по логину+паролю)
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  role         String   @default("admin") // admin | editor | viewer
+  createdAt    DateTime @default(now())
+}
+
+// Сайт — источник трафика (Яндекс.Метрика)
+model Site {
+  id              String        @id @default(cuid())
+  name            String
+  domain          String
+  metrikaCounter  String?       // ID счётчика Яндекс.Метрики
+  color           String        @default("#3b82f6") // цвет на графиках
+  createdAt       DateTime      @default(now())
+  traffic         TrafficData[]
+  projects        Project[]
+}
+
+// Проект — единица отслеживания видимости (Топвизор)
+model Project {
+  id               String           @id @default(cuid())
+  name             String
+  topvisorId       String?          // ID проекта в Топвизоре
+  searchEngine     String           @default("Яндекс") // Яндекс | Google
+  region           String?          // регион проверки позиций
+  color            String           @default("#10b981")
+  site             Site?            @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  siteId           String?
+  createdAt        DateTime         @default(now())
+  visibility       VisibilityData[]
+}
+
+// Дневные данные по трафику из Метрики
+model TrafficData {
+  id          String   @id @default(cuid())
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  siteId      String
+  date        DateTime @db.Date
+  visits      Int      @default(0)
+  visitors    Int      @default(0)
+  pageviews   Int      @default(0)
+  bounceRate  Float    @default(0) // %
+  avgDuration Int      @default(0) // секунды
+  source      String   @default("all") // all | organic | direct | referral | social | ads
+
+  @@unique([siteId, date, source])
+  @@index([siteId, date])
+}
+
+// Дневные данные по видимости из Топвизора
+model VisibilityData {
+  id           String   @id @default(cuid())
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String
+  date         DateTime @db.Date
+  searchEngine String   @default("Яндекс") // Яндекс | Google
+  visibility   Float    @default(0) // % видимости
+  avgPosition  Float    @default(0) // средняя позиция
+  top3         Int      @default(0) // кол-во запросов в ТОП-3
+  top10        Int      @default(0) // кол-во запросов в ТОП-10
+  top50        Int      @default(0) // кол-во запросов в ТОП-50
+  queriesTotal Int      @default(0) // всего запросов в проекте
+
+  @@unique([projectId, date, searchEngine])
+  @@index([projectId, date, searchEngine])
+}

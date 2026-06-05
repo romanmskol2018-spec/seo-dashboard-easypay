@@ -1,0 +1,19 @@
+# Конфигурация деплоя на Render (https://render.com)
+# Render прочитает этот файл при создании Blueprint и настроит сервис.
+services:
+  - type: web
+    name: seo-dashboard-easypay
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      # Значения вводятся в интерфейсе Render при деплое (секреты не в репозитории)
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: NODE_ENV
+        value: production
