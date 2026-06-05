@@ -61,7 +61,7 @@ export default async function DashboardPage(props: {
       {/* Шапка */}
       <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-xl font-semibold">SEO Дашборд</h1>
+          <h1 className="text-xl font-semibold">SEO Дашборд EasyPay</h1>
           <p className="text-muted text-sm">
             Трафик из Яндекс.Метрики · Видимость из Топвизора
           </p>
@@ -329,7 +329,7 @@ export default async function DashboardPage(props: {
       )}
 
       <footer className="text-center text-muted text-xs mt-10">
-        SEO Дашборд · данные обновляются вручную через админку
+        SEO Дашборд EasyPay · данные обновляются вручную через админку
       </footer>
     </main>
   );

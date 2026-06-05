@@ -41,7 +41,7 @@ export default function LoginPage() {
         className="w-full max-w-sm bg-surface border border-border rounded-2xl p-8 shadow-xl"
       >
         <div className="mb-6 text-center">
-          <div className="text-2xl font-semibold">SEO Дашборд</div>
+          <div className="text-2xl font-semibold">SEO Дашборд EasyPay</div>
           <p className="text-muted text-sm mt-1">Вход в админ-панель</p>
         </div>
 
