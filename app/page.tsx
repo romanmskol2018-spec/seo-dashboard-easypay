@@ -7,6 +7,7 @@ import { GroupSwitcher } from "@/components/GroupSwitcher";
 import { EngineSwitcher } from "@/components/EngineSwitcher";
 import { TrafficChart } from "@/components/TrafficChart";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Icon } from "@/components/Icon";
 import type { Granularity } from "@/lib/data";
 import { VisibilityChart } from "@/components/VisibilityChart";
 import { formatNumber, formatPct, formatDelta } from "@/lib/format";
@@ -60,11 +61,18 @@ export default async function DashboardPage(props: {
     <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
       {/* Шапка */}
       <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-xl font-semibold">SEO Дашборд EasyPay</h1>
-          <p className="text-muted text-sm">
-            Трафик из Яндекс.Метрики · Видимость из Топвизора
-          </p>
+        <div className="flex items-center gap-3">
+          <span className="grid place-items-center w-10 h-10 rounded-xl bg-accent/15 text-accent shrink-0">
+            <Icon name="chart" />
+          </span>
+          <div>
+            <h1 className="text-xl font-semibold leading-tight">
+              SEO Дашборд EasyPay
+            </h1>
+            <p className="text-muted text-sm">
+              Трафик из Яндекс.Метрики · Видимость из Топвизора
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <PeriodSwitcher
@@ -75,9 +83,10 @@ export default async function DashboardPage(props: {
           <ThemeToggle />
           <Link
             href={user ? "/admin" : "/login"}
-            className="px-4 py-2 text-sm rounded-lg bg-surface border border-border hover:border-accent transition"
+            className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-surface border border-border hover:border-accent transition"
           >
-            {user ? "⚙ Админка" : "Войти"}
+            <Icon name={user ? "gear" : "login"} className="w-4 h-4" />
+            {user ? "Админка" : "Войти"}
           </Link>
         </div>
       </header>
@@ -101,27 +110,34 @@ export default async function DashboardPage(props: {
               value={formatNumber(data.totals.visits)}
               delta={data.totals.visitsDeltaPct}
               hint="к пред. периоду"
+              icon="trending"
             />
             <StatCard
               label="Посетители"
               value={formatNumber(data.totals.visitors)}
+              icon="users"
             />
             <StatCard
               label="Просмотры"
               value={formatNumber(data.totals.pageviews)}
+              icon="eye"
             />
             <StatCard
               label="Видимость в ТОП-10 (ср.)"
               value={formatPct(data.totals.avgVisibility)}
               delta={data.totals.visibilityDeltaPct}
               hint="к пред. периоду"
+              icon="search"
             />
           </section>
 
           {/* График трафика */}
           <section className="bg-surface border border-border rounded-2xl p-5 mb-8">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-medium">Трафик по сайтам</h2>
+              <h2 className="font-medium flex items-center gap-2">
+                <Icon name="trending" className="w-5 h-5 text-accent" />
+                Трафик по сайтам
+              </h2>
               <GroupSwitcher
                 current={granularity}
                 period={days}
@@ -141,7 +157,10 @@ export default async function DashboardPage(props: {
 
           {/* Таблица по сайтам */}
           <section className="bg-surface border border-border rounded-2xl p-5 mb-8 overflow-x-auto">
-            <h2 className="font-medium mb-4">Трафик по Метрике</h2>
+            <h2 className="font-medium mb-4 flex items-center gap-2">
+              <Icon name="globe" className="w-5 h-5 text-accent" />
+              Трафик по Метрике
+            </h2>
             {data.sites.length === 0 ? (
               <p className="text-muted text-sm">
                 Пока нет сайтов. Добавь их в админке.
@@ -220,7 +239,10 @@ export default async function DashboardPage(props: {
           {/* График видимости */}
           <section className="bg-surface border border-border rounded-2xl p-5 mb-8">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-medium">Видимость в ТОП-10 по проектам</h2>
+              <h2 className="font-medium flex items-center gap-2">
+                <Icon name="search" className="w-5 h-5 text-accent" />
+                Видимость в ТОП-10 по проектам
+              </h2>
               <EngineSwitcher
                 current={searchEngine}
                 period={days}
@@ -240,7 +262,10 @@ export default async function DashboardPage(props: {
           {/* Таблица по проектам */}
           <section className="bg-surface border border-border rounded-2xl p-5 overflow-x-auto">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <h2 className="font-medium">Проекты (видимость) · {searchEngine}</h2>
+              <h2 className="font-medium flex items-center gap-2">
+                <Icon name="target" className="w-5 h-5 text-accent" />
+                Проекты (видимость) · {searchEngine}
+              </h2>
               <EngineSwitcher
                 current={searchEngine}
                 period={days}
