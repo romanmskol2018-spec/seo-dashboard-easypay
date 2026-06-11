@@ -8,6 +8,19 @@ export async function GET() {
     include: {
       site: { select: { id: true, name: true } },
       _count: { select: { visibility: true } },
+      // последняя запись видимости — для статуса свежести на «Обзоре»
+      visibility: {
+        orderBy: { date: "desc" },
+        take: 1,
+        select: {
+          date: true,
+          visibility: true,
+          top10: true,
+          top3: true,
+          avgPosition: true,
+          searchEngine: true,
+        },
+      },
     },
   });
   return NextResponse.json(projects);

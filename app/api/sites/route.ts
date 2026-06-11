@@ -5,7 +5,15 @@ import { requireUser } from "@/lib/auth";
 export async function GET() {
   const sites = await prisma.site.findMany({
     orderBy: { createdAt: "asc" },
-    include: { _count: { select: { traffic: true, projects: true } } },
+    include: {
+      _count: { select: { traffic: true, projects: true } },
+      // последняя запись трафика — для статуса свежести на «Обзоре»
+      traffic: {
+        orderBy: { date: "desc" },
+        take: 1,
+        select: { date: true, visits: true, visitors: true, bounceRate: true },
+      },
+    },
   });
   return NextResponse.json(sites);
 }
