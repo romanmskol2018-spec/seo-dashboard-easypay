@@ -14,17 +14,25 @@ import { formatNumber, formatPct, formatDelta } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-// Прирост/падение количества запросов в топе
-function TopCell({ value, delta }: { value: number; delta: number | null }) {
+// Значение с инлайн-стрелкой прироста/падения (запросы в топе, визиты и т.п.)
+function TopCell({
+  value,
+  delta,
+  display,
+}: {
+  value: number;
+  delta: number | null;
+  display?: string;
+}) {
   return (
     <div className="flex items-center justify-end gap-1.5">
-      <span>{value}</span>
+      <span>{display ?? value}</span>
       {delta !== null && delta !== 0 && (
         <span
           className={`text-xs ${delta > 0 ? "text-positive" : "text-negative"}`}
         >
           {delta > 0 ? "▲" : "▼"}
-          {Math.abs(delta)}
+          {formatNumber(Math.abs(delta))}
         </span>
       )}
     </div>
@@ -171,19 +179,17 @@ export default async function DashboardPage(props: {
                   <tr className="text-muted text-left border-b border-border">
                     <th className="py-2 pr-4 font-medium">Сайт</th>
                     <th className="py-2 px-4 font-medium text-right">Визиты</th>
-                    <th className="py-2 px-4 font-medium text-right">
-                      Посетители
-                    </th>
-                    <th className="py-2 px-4 font-medium text-right">
-                      Просмотры
-                    </th>
                     <th className="py-2 px-4 font-medium text-right">Отказы</th>
-                    <th className="py-2 pl-4 font-medium text-right">Динамика</th>
+                    <th className="py-2 pl-4 font-medium text-right">
+                      Динамика, %
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.sites.map((s) => {
                     const d = formatDelta(s.deltaPct);
+                    const visitsDelta =
+                      s.prevVisits > 0 ? s.visits - s.prevVisits : null;
                     return (
                       <tr
                         key={s.id}
@@ -204,13 +210,11 @@ export default async function DashboardPage(props: {
                           </div>
                         </td>
                         <td className="py-3 px-4 text-right">
-                          {formatNumber(s.visits)}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {formatNumber(s.visitors)}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {formatNumber(s.pageviews)}
+                          <TopCell
+                            value={s.visits}
+                            delta={visitsDelta}
+                            display={formatNumber(s.visits)}
+                          />
                         </td>
                         <td className="py-3 px-4 text-right">
                           {formatPct(s.bounceRate, 0)}
