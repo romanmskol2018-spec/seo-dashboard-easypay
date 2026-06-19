@@ -10,7 +10,12 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Icon } from "@/components/Icon";
 import type { Granularity } from "@/lib/data";
 import { VisibilityChart } from "@/components/VisibilityChart";
-import { formatNumber, formatPct, formatDelta } from "@/lib/format";
+import {
+  formatNumber,
+  formatPct,
+  formatDelta,
+  formatDateShort,
+} from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +69,14 @@ export default async function DashboardPage(props: {
   } catch {
     dbError = true;
   }
+
+  // Подписи периодов для таблицы трафика (было → стало)
+  const prevRange = data
+    ? `${formatDateShort(data.period.prevStart)} – ${formatDateShort(data.period.prevEnd)}`
+    : "";
+  const currRange = data
+    ? `${formatDateShort(data.period.currStart)} – ${formatDateShort(data.period.currEnd)}`
+    : "";
 
   return (
     <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
@@ -176,10 +189,20 @@ export default async function DashboardPage(props: {
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-muted text-left border-b border-border">
+                  <tr className="text-muted text-left border-b border-border align-bottom">
                     <th className="py-2 pr-4 font-medium">Сайт</th>
-                    <th className="py-2 px-4 font-medium text-right">Визиты</th>
-                    <th className="py-2 px-4 font-medium text-right">Отказы</th>
+                    <th className="py-2 px-4 font-medium text-right">
+                      <div>Визиты: было</div>
+                      <div className="text-xs font-normal text-muted/70">
+                        {prevRange}
+                      </div>
+                    </th>
+                    <th className="py-2 px-4 font-medium text-right">
+                      <div>Визиты: стало</div>
+                      <div className="text-xs font-normal text-muted/70">
+                        {currRange}
+                      </div>
+                    </th>
                     <th className="py-2 pl-4 font-medium text-right">
                       Динамика, %
                     </th>
@@ -209,15 +232,15 @@ export default async function DashboardPage(props: {
                             </div>
                           </div>
                         </td>
+                        <td className="py-3 px-4 text-right text-muted">
+                          {s.prevVisits > 0 ? formatNumber(s.prevVisits) : "—"}
+                        </td>
                         <td className="py-3 px-4 text-right">
                           <TopCell
                             value={s.visits}
                             delta={visitsDelta}
                             display={formatNumber(s.visits)}
                           />
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {formatPct(s.bounceRate, 0)}
                         </td>
                         <td className="py-3 pl-4 text-right">
                           <span

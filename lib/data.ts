@@ -43,6 +43,12 @@ export type DashboardData = {
   projects: ProjectSummary[];
   trafficTrend: TrendRow[];
   visibilityTrend: TrendRow[];
+  period: {
+    currStart: string;
+    currEnd: string;
+    prevStart: string;
+    prevEnd: string;
+  };
   totals: {
     visits: number;
     visitors: number;
@@ -147,6 +153,8 @@ export async function getDashboardData(
   rangeStart.setUTCDate(today.getUTCDate() - (days - 1));
   const prevStart = new Date(rangeStart);
   prevStart.setUTCDate(rangeStart.getUTCDate() - days);
+  const prevEnd = new Date(rangeStart);
+  prevEnd.setUTCDate(rangeStart.getUTCDate() - 1);
 
   const [sites, projects, traffic, visibility] = await Promise.all([
     prisma.site.findMany({ orderBy: { createdAt: "asc" } }),
@@ -278,6 +286,12 @@ export async function getDashboardData(
     projects: projectSummaries,
     trafficTrend,
     visibilityTrend,
+    period: {
+      currStart: fmt(rangeStart),
+      currEnd: fmt(today),
+      prevStart: fmt(prevStart),
+      prevEnd: fmt(prevEnd),
+    },
     totals: {
       visits: totalVisits,
       visitors: totalVisitors,
