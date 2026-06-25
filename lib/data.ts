@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatBucketLabel } from "@/lib/format";
 
 export type SiteSummary = {
   id: string;
@@ -141,6 +142,115 @@ function groupTrendAvg(rows: TrendRow[], group: Granularity): TrendRow[] {
     }
   }
   return Array.from(sums.values()).sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+// ====================== ЛИДЫ И ПРОДАЖИ (CRM) ======================
+
+export type LeadWeek = {
+  weekStart: string;
+  label: string;
+  val: number;
+  qual: number | null;
+  seo: number;
+  recom: number;
+  direct: number;
+  klerk: number;
+  insta: number;
+  karty: number;
+  dzen: number;
+  youtube: number;
+  partner: number;
+  seoGoogle: number;
+  seoYandex: number;
+  seoUnknown: number;
+};
+
+export type LeadsData = {
+  project: string; // "ALL" | имя проекта
+  projects: string[]; // список проектов (для фильтра)
+  weeks: LeadWeek[];
+};
+
+const LEAD_PROJECTS = [
+  "Easypay.World",
+  "4YouCards",
+  "VisaMasterCards",
+  "AVO.cards",
+  "Visatut",
+];
+
+// Лиды по неделям для выбранного проекта ("ALL" — агрегат по всем).
+export async function getLeadsData(project = "ALL"): Promise<LeadsData> {
+  const rows = await prisma.leadStat.findMany({
+    where: { project },
+    orderBy: { weekStart: "asc" },
+  });
+  return {
+    project,
+    projects: LEAD_PROJECTS,
+    weeks: rows.map((r) => ({
+      weekStart: fmt(r.weekStart),
+      label: r.weekLabel,
+      val: r.val,
+      qual: r.qual,
+      seo: r.seo,
+      recom: r.recom,
+      direct: r.direct,
+      klerk: r.klerk,
+      insta: r.insta,
+      karty: r.karty,
+      dzen: r.dzen,
+      youtube: r.youtube,
+      partner: r.partner,
+      seoGoogle: r.seoGoogle,
+      seoYandex: r.seoYandex,
+      seoUnknown: r.seoUnknown,
+    })),
+  };
+}
+
+export type SalesData = {
+  cards: number;
+  revenue: number;
+  avg: number;
+  byWeek: { label: string; cards: number; revenue: number }[];
+  byBank: { bank: string; cards: number }[];
+};
+
+// Продажи карт = живые оплаченные сделки (без импорта истории).
+export async function getSalesData(): Promise<SalesData> {
+  const sales = await prisma.cardSale.findMany({
+    where: { isImport: false, amount: { gt: 0 } },
+    orderBy: { date: "asc" },
+  });
+  const cards = sales.length;
+  const revenue = sales.reduce((s, x) => s + x.amount, 0);
+  const wk = new Map<string, { cards: number; revenue: number }>();
+  for (const s of sales) {
+    const key = bucketKey(fmt(s.date), "week");
+    if (!wk.has(key)) wk.set(key, { cards: 0, revenue: 0 });
+    const b = wk.get(key)!;
+    b.cards++;
+    b.revenue += s.amount;
+  }
+  const byWeek = Array.from(wk.entries())
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([key, v]) => ({ label: formatBucketLabel(key, "week"), ...v }));
+  const banks = new Map<string, number>();
+  for (const s of sales) {
+    if (!s.bank) continue;
+    banks.set(s.bank, (banks.get(s.bank) || 0) + 1);
+  }
+  const byBank = Array.from(banks.entries())
+    .map(([bank, cnt]) => ({ bank, cards: cnt }))
+    .sort((a, b) => b.cards - a.cards);
+  return {
+    cards,
+    revenue,
+    avg: cards ? Math.round(revenue / cards) : 0,
+    byWeek,
+    byBank,
+  };
 }
 
 export async function getDashboardData(

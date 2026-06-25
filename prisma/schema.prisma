@@ -64,6 +64,53 @@ model TrafficData {
   @@index([siteId, date])
 }
 
+// Недельная сводка по лидам из CRM (Bitrix) — агрегат по неделя × проект.
+// Уникальный лид = уникальный контакт (мобильный клиента или визит metrika).
+// Источники: значения разнесены по полям UTM(×2)+Источник(×2)+Система+Реферер+Директ;
+// нераспознанный источник делится 60% SEO / 40% рекомендации.
+model LeadStat {
+  id          String   @id @default(cuid())
+  weekStart   DateTime @db.Date // понедельник недели
+  weekLabel   String           // напр. "17–23.06" для подписи
+  project     String           // Easypay.World | 4YouCards | VisaMasterCards | AVO.cards | Visatut
+  val         Int      @default(0) // вал (уникальные лиды)
+  qual        Int?             // кач-лиды (из DEAL), null = ещё не посчитано
+  seo         Int      @default(0)
+  recom       Int      @default(0) // рекомендации/прямые
+  direct      Int      @default(0) // Яндекс.Директ
+  klerk       Int      @default(0)
+  insta       Int      @default(0)
+  karty       Int      @default(0)
+  dzen        Int      @default(0)
+  youtube     Int      @default(0)
+  partner     Int      @default(0)
+  seoGoogle   Int      @default(0) // SEO-сплит: гугл
+  seoYandex   Int      @default(0) // SEO-сплит: яндекс
+  seoUnknown  Int      @default(0) // SEO-сплит: неизвестно/распределённое
+  updatedAt   DateTime @updatedAt
+
+  @@unique([weekStart, project])
+  @@index([weekStart])
+}
+
+// Оплаченная продажа карты из CRM (DEAL). «Чек» = поле «Оплаченная сумма» / «Оплачено».
+model CardSale {
+  id        String   @id @default(cuid())
+  dealId    String   @unique // ID сделки в Bitrix (идемпотентный импорт)
+  date      DateTime @db.Date // дата создания сделки
+  amount    Int      @default(0) // оплаченная сумма, ₽
+  cardType  String?          // «Тип карты» (виртуальная, Бакай голд…)
+  bank      String?          // нормализованный банк (Бакай/Ориён/Арцах/…)
+  product   String?          // «Товар» (полное название карты)
+  source    String?          // источник продажи (SEO/Директ/…), если определён
+  project   String?          // проект
+  isImport  Boolean  @default(false) // true = из миграции истории (25–28.05), не «живая»
+  createdAt DateTime @default(now())
+
+  @@index([date])
+  @@index([isImport])
+}
+
 // Дневные данные по видимости из Топвизора
 model VisibilityData {
   id           String   @id @default(cuid())

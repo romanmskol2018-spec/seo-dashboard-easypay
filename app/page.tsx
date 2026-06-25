@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { getDashboardData } from "@/lib/data";
+import { getDashboardData, getLeadsData, getSalesData } from "@/lib/data";
+import type { LeadsData, SalesData } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/components/StatCard";
 import { PeriodSwitcher } from "@/components/PeriodSwitcher";
@@ -44,10 +45,25 @@ function TopCell({
   );
 }
 
+const LEAD_PROJECTS = [
+  "Easypay.World",
+  "4YouCards",
+  "VisaMasterCards",
+  "AVO.cards",
+  "Visatut",
+];
+
 export default async function DashboardPage(props: {
-  searchParams: Promise<{ period?: string; group?: string; engine?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    group?: string;
+    engine?: string;
+    proj?: string;
+  }>;
 }) {
-  const { period, group, engine } = await props.searchParams;
+  const { period, group, engine, proj } = await props.searchParams;
+  const project =
+    proj && ["ALL", ...LEAD_PROJECTS].includes(proj) ? proj : "ALL";
   const days = [7, 30, 90, 180, 365].includes(Number(period))
     ? Number(period)
     : 30;
@@ -69,6 +85,26 @@ export default async function DashboardPage(props: {
   } catch {
     dbError = true;
   }
+
+  // Лиды и продажи из CRM (отдельно: таблицы могут быть ещё не созданы)
+  let leads: LeadsData | null = null;
+  let sales: SalesData | null = null;
+  try {
+    [leads, sales] = await Promise.all([getLeadsData(project), getSalesData()]);
+  } catch {
+    leads = null;
+    sales = null;
+  }
+
+  // Ссылка на тот же дашборд со сменой проекта (период/группировка/движок сохраняются)
+  const projHref = (p: string) => {
+    const sp = new URLSearchParams();
+    if (period) sp.set("period", String(period));
+    if (group) sp.set("group", String(group));
+    if (engine) sp.set("engine", String(engine));
+    sp.set("proj", p);
+    return `/?${sp.toString()}`;
+  };
 
   // Подписи периодов для таблицы трафика (было → стало)
   const prevRange = data
@@ -380,8 +416,178 @@ export default async function DashboardPage(props: {
         </>
       )}
 
+      {/* ===================== ЛИДЫ (CRM) ===================== */}
+      {leads && leads.weeks.length > 0 && (
+        <section className="bg-surface border border-border rounded-2xl p-5 mt-8 overflow-x-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 className="font-medium flex items-center gap-2">
+              <Icon name="users" className="w-5 h-5 text-accent" />
+              Лиды по неделям · {project === "ALL" ? "все проекты" : project}
+            </h2>
+            <div className="flex flex-wrap gap-1.5">
+              {["ALL", ...leads.projects].map((p) => (
+                <Link
+                  key={p}
+                  href={projHref(p)}
+                  className={`px-3 py-1.5 text-xs rounded-lg border transition ${
+                    p === project
+                      ? "bg-accent/15 text-accent border-accent"
+                      : "bg-surface text-muted border-border hover:border-accent"
+                  }`}
+                >
+                  {p === "ALL" ? "Все проекты" : p}
+                </Link>
+              ))}
+            </div>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-muted text-left border-b border-border">
+                <th className="py-2 pr-4 font-medium">Неделя</th>
+                <th className="py-2 px-3 font-medium text-right">Вал</th>
+                <th className="py-2 px-3 font-medium text-right">Кач</th>
+                <th className="py-2 px-3 font-medium text-right">SEO</th>
+                <th className="py-2 px-3 font-medium text-right">Реком.</th>
+                <th className="py-2 px-3 font-medium text-right">Директ</th>
+                <th className="py-2 px-3 font-medium text-right">Клерк</th>
+                <th className="py-2 px-3 font-medium text-right">Инст.</th>
+                <th className="py-2 px-3 font-medium text-right">Карты</th>
+                <th className="py-2 px-3 font-medium text-right">Дзен</th>
+                <th className="py-2 px-3 font-medium text-right">Ютуб</th>
+                <th className="py-2 pl-3 font-medium text-right">Партн.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leads.weeks.map((w) => (
+                <tr
+                  key={w.weekStart}
+                  className="border-b border-border/50 last:border-0"
+                >
+                  <td className="py-2.5 pr-4 font-medium">{w.label}</td>
+                  <td className="py-2.5 px-3 text-right font-semibold">
+                    {formatNumber(w.val)}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-positive">
+                    {w.qual === null ? "—" : formatNumber(w.qual)}
+                  </td>
+                  <td className="py-2.5 px-3 text-right">{w.seo || "—"}</td>
+                  <td className="py-2.5 px-3 text-right">{w.recom || "—"}</td>
+                  <td className="py-2.5 px-3 text-right">{w.direct || "—"}</td>
+                  <td className="py-2.5 px-3 text-right">{w.klerk || "—"}</td>
+                  <td className="py-2.5 px-3 text-right">{w.insta || "—"}</td>
+                  <td className="py-2.5 px-3 text-right">{w.karty || "—"}</td>
+                  <td className="py-2.5 px-3 text-right">{w.dzen || "—"}</td>
+                  <td className="py-2.5 px-3 text-right">{w.youtube || "—"}</td>
+                  <td className="py-2.5 pl-3 text-right">{w.partner || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-muted text-xs mt-3">
+            Уникальный лид = уникальный контакт (мобильный клиента или визит
+            Метрики). Кач-лиды — общие по проектам (DEAL не разбит по проектам).
+          </p>
+        </section>
+      )}
+
+      {/* ===================== ПРОДАЖИ КАРТ (CRM) ===================== */}
+      {sales && sales.cards > 0 && (
+        <section className="mt-8">
+          <h2 className="font-medium flex items-center gap-2 mb-4">
+            <Icon name="trending" className="w-5 h-5 text-accent" />
+            Продажи карт (реальные — оплаченные, без импорта)
+          </h2>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+            <StatCard
+              label="Карт продано"
+              value={formatNumber(sales.cards)}
+              icon="trending"
+            />
+            <StatCard
+              label="Выручка"
+              value={`${formatNumber(sales.revenue)} ₽`}
+              icon="chart"
+            />
+            <StatCard
+              label="Средний чек"
+              value={`${formatNumber(sales.avg)} ₽`}
+            />
+          </div>
+          <div className="grid lg:grid-cols-2 gap-4">
+            <div className="bg-surface border border-border rounded-2xl p-5 overflow-x-auto">
+              <h3 className="font-medium mb-3 text-sm">Продажи по неделям</h3>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-muted text-left border-b border-border">
+                    <th className="py-2 pr-4 font-medium">Неделя</th>
+                    <th className="py-2 px-3 font-medium text-right">Карт</th>
+                    <th className="py-2 pl-3 font-medium text-right">
+                      Выручка ₽
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sales.byWeek.map((w) => (
+                    <tr
+                      key={w.label}
+                      className="border-b border-border/50 last:border-0"
+                    >
+                      <td className="py-2.5 pr-4">{w.label}</td>
+                      <td className="py-2.5 px-3 text-right font-semibold">
+                        {w.cards}
+                      </td>
+                      <td className="py-2.5 pl-3 text-right">
+                        {formatNumber(w.revenue)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="bg-surface border border-border rounded-2xl p-5 overflow-x-auto">
+              <h3 className="font-medium mb-3 text-sm">
+                Тип карты по банку{" "}
+                <span className="text-muted font-normal">
+                  (где указан)
+                </span>
+              </h3>
+              {sales.byBank.length === 0 ? (
+                <p className="text-muted text-sm">Тип карты пока не заполнен.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-muted text-left border-b border-border">
+                      <th className="py-2 pr-4 font-medium">Банк / тип</th>
+                      <th className="py-2 pl-3 font-medium text-right">Карт</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sales.byBank.map((b) => (
+                      <tr
+                        key={b.bank}
+                        className="border-b border-border/50 last:border-0"
+                      >
+                        <td className="py-2.5 pr-4">{b.bank}</td>
+                        <td className="py-2.5 pl-3 text-right font-semibold">
+                          {b.cards}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+          <p className="text-muted text-xs mt-3">
+            Продажа = реально оплаченная сделка (поле «Оплаченная сумма») за
+            период, без разового импорта истории 25–28.05.
+          </p>
+        </section>
+      )}
+
       <footer className="text-center text-muted text-xs mt-10">
-        SEO Дашборд EasyPay · данные обновляются вручную через админку
+        SEO Дашборд EasyPay · трафик и позиции — из админки · лиды и продажи —
+        импорт из CRM (npm run import:crm)
       </footer>
     </main>
   );
