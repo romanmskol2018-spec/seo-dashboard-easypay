@@ -11,17 +11,19 @@ export function GroupSwitcher({
   current,
   period,
   engine,
+  suffix = "",
 }: {
   current: Granularity;
   period: number;
   engine: string;
+  suffix?: string;
 }) {
   return (
     <div className="inline-flex bg-surface-2 border border-border rounded-lg p-1">
       {OPTIONS.map((o) => (
         <Link
           key={o.group}
-          href={`/?period=${period}&group=${o.group}&engine=${encodeURIComponent(engine)}`}
+          href={`/?period=${period}&group=${o.group}&engine=${encodeURIComponent(engine)}${suffix}`}
           scroll={false}
           className={`px-3 py-1 text-xs rounded-md transition ${
             current === o.group

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { formatBucketLabel } from "@/lib/format";
+import { formatBucketLabel, formatDateShort } from "@/lib/format";
 
 export type SiteSummary = {
   id: string;
@@ -179,12 +179,25 @@ const LEAD_PROJECTS = [
   "Visatut",
 ];
 
+// Медиана набора чисел (для «честного» среднего чека — устойчива к выбросам).
+function median(nums: number[]): number {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+}
+
 // Лиды по неделям для выбранного проекта ("ALL" — агрегат по всем).
-export async function getLeadsData(project = "ALL"): Promise<LeadsData> {
-  const rows = await prisma.leadStat.findMany({
+// weeksLimit — оставить только последние N недель (null = все).
+export async function getLeadsData(
+  project = "ALL",
+  weeksLimit: number | null = null
+): Promise<LeadsData> {
+  const all = await prisma.leadStat.findMany({
     where: { project },
     orderBy: { weekStart: "asc" },
   });
+  const rows = weeksLimit ? all.slice(-weeksLimit) : all;
   return {
     project,
     projects: LEAD_PROJECTS,
@@ -213,14 +226,29 @@ export type SalesData = {
   cards: number;
   revenue: number;
   avg: number;
+  median: number; // медианный чек (устойчив к выбросам)
   byWeek: { label: string; cards: number; revenue: number }[];
   byBank: { bank: string; cards: number }[];
 };
 
 // Продажи карт = живые оплаченные сделки (без импорта истории).
-export async function getSalesData(): Promise<SalesData> {
+// fromIso/toIso — ограничить окном (для сквозного периода воронки).
+export async function getSalesData(
+  fromIso?: string,
+  toIso?: string
+): Promise<SalesData> {
+  const where: {
+    isImport: boolean;
+    amount: { gt: number };
+    date?: { gte?: Date; lte?: Date };
+  } = { isImport: false, amount: { gt: 0 } };
+  if (fromIso || toIso) {
+    where.date = {};
+    if (fromIso) where.date.gte = new Date(fromIso);
+    if (toIso) where.date.lte = new Date(toIso);
+  }
   const sales = await prisma.cardSale.findMany({
-    where: { isImport: false, amount: { gt: 0 } },
+    where,
     orderBy: { date: "asc" },
   });
   const cards = sales.length;
@@ -248,8 +276,145 @@ export async function getSalesData(): Promise<SalesData> {
     cards,
     revenue,
     avg: cards ? Math.round(revenue / cards) : 0,
+    median: median(sales.map((s) => s.amount)),
     byWeek,
     byBank,
+  };
+}
+
+// ====================== ВОРОНКА КОНВЕРСИИ ======================
+// Сшивает путь «деньги от трафика до выручки»:
+// Визиты (Метрика) → Лиды (вал) → Кач-лиды (есть сделка) → Продажи (оплачено) → Выручка.
+// weeksLimit — окно последних N недель (null = всё). Дельты — к предыдущему
+// равному окну. Визиты берутся за то же окно, если трафик импортирован.
+export type FunnelData = {
+  visits: number | null; // null = трафик ещё не импортирован
+  leads: number;
+  qual: number;
+  sales: number;
+  revenue: number;
+  avgCheck: number;
+  medianCheck: number; // медианный чек (честнее среднего при выбросах)
+  crVisitLead: number | null; // лиды / визиты, %
+  crLeadQual: number | null; // кач / лиды, %
+  crQualSale: number | null; // продажи / кач, %
+  crLeadSale: number | null; // продажи / лиды, % (сквозная)
+  // Динамика к предыдущему равному окну (null = нет предыдущего окна)
+  leadsDeltaPct: number | null;
+  qualDeltaPct: number | null;
+  salesDeltaPct: number | null;
+  revenueDeltaPct: number | null;
+  // SEO-подворонка
+  seoLeads: number; // лиды из канала SEO за окно
+  seoShare: number | null; // доля SEO среди всех лидов, %
+  seoCrVisit: number | null; // SEO-лиды / визиты, % (нижняя оценка)
+  rangeFrom: string; // подпись начала окна
+  rangeTo: string; // подпись конца окна
+  weeks: number;
+  windowFrom: string; // ISO начала окна (для фильтра продаж)
+  windowTo: string; // ISO конца окна
+};
+
+export async function getFunnelData(
+  weeksLimit: number | null = null
+): Promise<FunnelData> {
+  const allRows = await prisma.leadStat.findMany({
+    where: { project: "ALL" },
+    orderBy: { weekStart: "asc" },
+  });
+  const curr = weeksLimit ? allRows.slice(-weeksLimit) : allRows;
+  const prev = weeksLimit ? allRows.slice(-weeksLimit * 2, -weeksLimit) : [];
+
+  const sumVal = (rs: typeof allRows) => rs.reduce((s, r) => s + r.val, 0);
+  const sumQual = (rs: typeof allRows) =>
+    rs.reduce((s, r) => s + (r.qual ?? 0), 0);
+  const sumSeo = (rs: typeof allRows) => rs.reduce((s, r) => s + r.seo, 0);
+
+  const leads = sumVal(curr);
+  const qual = sumQual(curr);
+  const seoLeads = sumSeo(curr);
+  const pLeads = sumVal(prev);
+  const pQual = sumQual(prev);
+
+  // Границы текущего окна по неделям
+  let windowFrom = "";
+  let windowTo = "";
+  let rangeFrom = "";
+  let rangeTo = "";
+  let first: Date | null = null;
+  let lastEnd: Date | null = null;
+  if (curr.length) {
+    first = curr[0].weekStart;
+    const last = curr[curr.length - 1].weekStart;
+    lastEnd = new Date(last);
+    lastEnd.setUTCDate(lastEnd.getUTCDate() + 6);
+    windowFrom = fmt(first);
+    windowTo = fmt(lastEnd);
+    rangeFrom = formatDateShort(windowFrom);
+    rangeTo = formatDateShort(windowTo);
+  }
+
+  // Продажи текущего окна
+  const salesWhere: {
+    isImport: boolean;
+    amount: { gt: number };
+    date?: { gte: Date; lte: Date };
+  } = { isImport: false, amount: { gt: 0 } };
+  if (first && lastEnd) salesWhere.date = { gte: first, lte: lastEnd };
+  const sales = await prisma.cardSale.findMany({ where: salesWhere });
+  const salesCount = sales.length;
+  const revenue = sales.reduce((s, x) => s + x.amount, 0);
+
+  // Продажи предыдущего окна (для дельты)
+  let pSalesCount = 0;
+  let pRevenue = 0;
+  if (prev.length) {
+    const pFirst = prev[0].weekStart;
+    const pLast = prev[prev.length - 1].weekStart;
+    const pEnd = new Date(pLast);
+    pEnd.setUTCDate(pEnd.getUTCDate() + 6);
+    const pSales = await prisma.cardSale.findMany({
+      where: { isImport: false, amount: { gt: 0 }, date: { gte: pFirst, lte: pEnd } },
+    });
+    pSalesCount = pSales.length;
+    pRevenue = pSales.reduce((s, x) => s + x.amount, 0);
+  }
+
+  // Визиты текущего окна
+  let visits: number | null = null;
+  if (first && lastEnd) {
+    const traffic = await prisma.trafficData.findMany({
+      where: { source: "all", date: { gte: first, lte: lastEnd } },
+    });
+    visits = traffic.length
+      ? traffic.reduce((s, t) => s + t.visits, 0)
+      : null;
+  }
+
+  return {
+    visits,
+    leads,
+    qual,
+    sales: salesCount,
+    revenue,
+    avgCheck: salesCount ? Math.round(revenue / salesCount) : 0,
+    medianCheck: median(sales.map((s) => s.amount)),
+    crVisitLead: visits && visits > 0 ? (leads / visits) * 100 : null,
+    crLeadQual: leads > 0 ? (qual / leads) * 100 : null,
+    crQualSale: qual > 0 ? (salesCount / qual) * 100 : null,
+    crLeadSale: leads > 0 ? (salesCount / leads) * 100 : null,
+    leadsDeltaPct: prev.length ? deltaPct(leads, pLeads) : null,
+    qualDeltaPct: prev.length ? deltaPct(qual, pQual) : null,
+    salesDeltaPct: prev.length ? deltaPct(salesCount, pSalesCount) : null,
+    revenueDeltaPct: prev.length ? deltaPct(revenue, pRevenue) : null,
+    seoLeads,
+    seoShare: leads > 0 ? (seoLeads / leads) * 100 : null,
+    seoCrVisit: visits && visits > 0 ? (seoLeads / visits) * 100 : null,
+    rangeFrom,
+    rangeTo,
+    weeks: curr.length,
+    windowFrom,
+    windowTo,
   };
 }
 
