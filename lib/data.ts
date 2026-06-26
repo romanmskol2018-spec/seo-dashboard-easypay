@@ -187,17 +187,32 @@ function median(nums: number[]): number {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 }
 
+// Все доступные недели (для пикера диапазона). Берём по агрегату "ALL".
+export async function getAvailableWeeks(): Promise<
+  { weekStart: string; label: string }[]
+> {
+  const rows = await prisma.leadStat.findMany({
+    where: { project: "ALL" },
+    orderBy: { weekStart: "asc" },
+    select: { weekStart: true, weekLabel: true },
+  });
+  return rows.map((r) => ({ weekStart: fmt(r.weekStart), label: r.weekLabel }));
+}
+
 // Лиды по неделям для выбранного проекта ("ALL" — агрегат по всем).
-// weeksLimit — оставить только последние N недель (null = все).
+// fromIso/toIso — границы по weekStart (включительно); null = без границы.
 export async function getLeadsData(
   project = "ALL",
-  weeksLimit: number | null = null
+  fromIso: string | null = null,
+  toIso: string | null = null
 ): Promise<LeadsData> {
   const all = await prisma.leadStat.findMany({
     where: { project },
     orderBy: { weekStart: "asc" },
   });
-  const rows = weeksLimit ? all.slice(-weeksLimit) : all;
+  let rows = all;
+  if (fromIso) rows = rows.filter((r) => fmt(r.weekStart) >= fromIso);
+  if (toIso) rows = rows.filter((r) => fmt(r.weekStart) <= toIso);
   return {
     project,
     projects: LEAD_PROJECTS,
@@ -316,14 +331,27 @@ export type FunnelData = {
 };
 
 export async function getFunnelData(
-  weeksLimit: number | null = null
+  fromIso: string | null = null,
+  toIso: string | null = null
 ): Promise<FunnelData> {
   const allRows = await prisma.leadStat.findMany({
     where: { project: "ALL" },
     orderBy: { weekStart: "asc" },
   });
-  const curr = weeksLimit ? allRows.slice(-weeksLimit) : allRows;
-  const prev = weeksLimit ? allRows.slice(-weeksLimit * 2, -weeksLimit) : [];
+  // Текущее окно = недели в [from, to]; предыдущее = столько же недель до него
+  let curr = allRows;
+  if (fromIso) curr = curr.filter((r) => fmt(r.weekStart) >= fromIso);
+  if (toIso) curr = curr.filter((r) => fmt(r.weekStart) <= toIso);
+  const startIdx =
+    curr.length > 0
+      ? allRows.findIndex(
+          (r) => fmt(r.weekStart) === fmt(curr[0].weekStart)
+        )
+      : 0;
+  const prev =
+    startIdx > 0
+      ? allRows.slice(Math.max(0, startIdx - curr.length), startIdx)
+      : [];
 
   const sumVal = (rs: typeof allRows) => rs.reduce((s, r) => s + r.val, 0);
   const sumQual = (rs: typeof allRows) =>
