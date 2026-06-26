@@ -14,6 +14,7 @@
     "import:metrika": "tsx prisma/import-metrika.ts",
     "import:topvisor": "tsx prisma/import-topvisor.ts",
     "import:crm": "tsx prisma/import-crm.ts",
+    "import:bitrix": "tsx prisma/import-bitrix.ts",
     "db:studio": "prisma studio"
   },
   "prisma": {
