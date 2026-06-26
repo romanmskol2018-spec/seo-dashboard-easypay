@@ -4,6 +4,7 @@ import {
   getLeadsData,
   getSalesData,
   getFunnelData,
+  getAvailableWeeks,
 } from "@/lib/data";
 import type { LeadsData, SalesData, FunnelData } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
@@ -19,7 +20,7 @@ import { VisibilityChart } from "@/components/VisibilityChart";
 import { FunnelChart } from "@/components/FunnelChart";
 import { ChannelMix } from "@/components/ChannelMix";
 import { RevenueBars } from "@/components/RevenueBars";
-import { CrmPeriodSwitcher } from "@/components/CrmPeriodSwitcher";
+import { WeekRangePicker } from "@/components/WeekRangePicker";
 import { SeoFunnel } from "@/components/SeoFunnel";
 import {
   formatNumber,
@@ -96,16 +97,18 @@ export default async function DashboardPage(props: {
     engine?: string;
     proj?: string;
     weeks?: string;
+    from?: string;
+    to?: string;
   }>;
 }) {
-  const { period, group, engine, proj, weeks } = await props.searchParams;
+  const { period, group, engine, proj, weeks, from, to } =
+    await props.searchParams;
   const project =
     proj && ["ALL", ...LEAD_PROJECTS].includes(proj) ? proj : "ALL";
-  // Сквозной период CRM-секции: "4" | "8" | "all" (по умолчанию 8)
+  // Старый параметр weeks ("4"|"8"|"all") поддерживаем для обратной совместимости
   const weeksParam = ["4", "8", "all"].includes(String(weeks))
     ? (weeks as string)
-    : "8";
-  const weeksLimit = weeksParam === "all" ? null : Number(weeksParam);
+    : null;
   const days = [7, 30, 90, 180, 365].includes(Number(period))
     ? Number(period)
     : 30;
@@ -132,10 +135,32 @@ export default async function DashboardPage(props: {
   let leads: LeadsData | null = null;
   let sales: SalesData | null = null;
   let funnel: FunnelData | null = null;
+  let availableWeeks: { weekStart: string; label: string }[] = [];
+  let rangeFrom: string | null = null;
+  let rangeTo: string | null = null;
   try {
-    funnel = await getFunnelData(weeksLimit);
+    availableWeeks = await getAvailableWeeks();
+    const starts = availableWeeks.map((w) => w.weekStart);
+    // Резолвим диапазон: from/to из URL → иначе старый weeks → иначе всё
+    rangeFrom = from && starts.includes(from) ? from : null;
+    rangeTo = to && starts.includes(to) ? to : null;
+    if (!rangeFrom && !rangeTo && weeksParam && starts.length) {
+      if (weeksParam === "all") {
+        rangeFrom = starts[0];
+        rangeTo = starts[starts.length - 1];
+      } else {
+        const n = Number(weeksParam);
+        rangeFrom = starts[Math.max(0, starts.length - n)];
+        rangeTo = starts[starts.length - 1];
+      }
+    }
+    if (!rangeFrom) rangeFrom = starts[0] ?? null;
+    if (!rangeTo) rangeTo = starts[starts.length - 1] ?? null;
+    if (rangeFrom && rangeTo && rangeFrom > rangeTo) rangeFrom = rangeTo;
+
+    funnel = await getFunnelData(rangeFrom, rangeTo);
     [leads, sales] = await Promise.all([
-      getLeadsData(project, weeksLimit),
+      getLeadsData(project, rangeFrom, rangeTo),
       getSalesData(
         funnel.windowFrom || undefined,
         funnel.windowTo || undefined
@@ -153,23 +178,17 @@ export default async function DashboardPage(props: {
     if (period) sp.set("period", String(period));
     if (group) sp.set("group", String(group));
     if (engine) sp.set("engine", String(engine));
-    if (weeks) sp.set("weeks", String(weeks));
+    if (rangeFrom) sp.set("from", rangeFrom);
+    if (rangeTo) sp.set("to", rangeTo);
     sp.set("proj", p);
     return `/?${sp.toString()}`;
   };
 
   // Суффикс для SEO-переключателей, чтобы они сохраняли окно воронки и проект
   const seoSuffix =
-    (weeks ? `&weeks=${weeksParam}` : "") +
+    (rangeFrom ? `&from=${rangeFrom}` : "") +
+    (rangeTo ? `&to=${rangeTo}` : "") +
     (project !== "ALL" ? `&proj=${encodeURIComponent(project)}` : "");
-
-  // Параметры для CRM-переключателя периода
-  const crmParams = {
-    period: period ? String(period) : undefined,
-    group: group ? String(group) : undefined,
-    engine: engine ? String(engine) : undefined,
-    proj: project !== "ALL" ? project : undefined,
-  };
 
   // Подписи периодов для таблицы трафика (было → стало)
   const prevRange = data
@@ -225,7 +244,7 @@ export default async function DashboardPage(props: {
       {/* ===================== БИЗНЕС: ВОРОНКА И ДЕНЬГИ ===================== */}
       {hasBusiness && funnel && (
         <>
-          {/* Переключатель сквозного периода (воронка/лиды/продажи — по неделям) */}
+          {/* Гибкий выбор периода по неделям (воронка/лиды/продажи) */}
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <div className="flex items-center gap-2 text-sm">
               <Icon name="sliders" className="w-4 h-4 text-muted" />
@@ -236,7 +255,13 @@ export default async function DashboardPage(props: {
                 </span>
               )}
             </div>
-            <CrmPeriodSwitcher current={weeksParam} params={crmParams} />
+            {rangeFrom && rangeTo && (
+              <WeekRangePicker
+                weeks={availableWeeks}
+                from={rangeFrom}
+                to={rangeTo}
+              />
+            )}
           </div>
 
           {/* KPI-табло про деньги */}
