@@ -6,8 +6,14 @@
 type Dict = Record<string, unknown>;
 
 // Читаем вебхук лениво — .env подгружается рантаймом Prisma при старте скрипта.
+// Чистим хвосты, которые часто попадают при вставке в GitHub-секрет:
+// пробелы, переносы строк, кавычки по краям, лишние слэши.
 function base(): string {
-  return (process.env.BITRIX_WEBHOOK_URL || "").replace(/\/+$/, "");
+  return (process.env.BITRIX_WEBHOOK_URL || "")
+    .trim()
+    .replace(/^["']+|["']+$/g, "")
+    .trim()
+    .replace(/\/+$/, "");
 }
 
 async function sleep(ms: number) {
