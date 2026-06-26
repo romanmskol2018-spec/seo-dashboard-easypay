@@ -1,0 +1,34 @@
+name: Bitrix sync
+
+# Авто-синхронизация дашборда с Bitrix24: тянет лиды/сделки и пишет в Neon.
+# Бесплатно на GitHub Actions (репозиторий публичный). Секреты — в настройках репо:
+# Settings → Secrets and variables → Actions → New repository secret:
+#   DATABASE_URL, DIRECT_URL, BITRIX_WEBHOOK_URL
+
+on:
+  schedule:
+    - cron: "17 */4 * * *" # каждые 4 часа (в :17, чтобы не попадать на пик)
+  workflow_dispatch: {} # ручной запуск кнопкой Run workflow
+
+# Не запускать параллельно несколько синков
+concurrency:
+  group: bitrix-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --include=dev
+      - run: npx prisma generate
+      - name: Импорт из Bitrix (запись в Neon)
+        run: npm run import:bitrix -- --write
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          BITRIX_WEBHOOK_URL: ${{ secrets.BITRIX_WEBHOOK_URL }}
