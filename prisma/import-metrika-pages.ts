@@ -87,24 +87,7 @@ type Row = {
 };
 
 // Трафик + лиды по страницам входа × дням за один интервал.
-// goalIds — лид-цели счётчика; их достижения суммируются в leads.
-async function fetchPages(
-  counter: string,
-  date1: string,
-  date2: string,
-  token: string,
-  goalIds: number[]
-): Promise<Row[]> {
-  const goalMetrics = goalIds.map((id) => `ym:s:goal${id}reaches`);
-  const params = new URLSearchParams({
-    ids: counter,
-    metrics: ["ym:s:visits,ym:s:users,ym:s:pageviews,ym:s:bounceRate,ym:s:avgVisitDuration", ...goalMetrics].join(","),
-    dimensions: "ym:s:startURL,ym:s:date",
-    filters: "ym:s:lastsignTrafficSource=='organic'",
-    date1,
-    date2,
-    limit: "100000",
-  });
+async function metrikaData(params: URLSearchParams, token: string, retry: () => Promise<unknown[]>): Promise<unknown[]> {
   let res: Response | undefined;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -119,37 +102,70 @@ async function fetchPages(
   if (!res) throw new Error(`сеть: ${(lastErr as Error)?.message || "fetch failed"}`);
   if (!res.ok) {
     const text = await res.text();
-    // слишком тяжёлый запрос — делим интервал пополам рекурсивно
-    if (text.includes("too complicated") && date1 < date2) {
-      const a = new Date(date1).getTime();
-      const b = new Date(date2).getTime();
-      const mid = new Date((a + b) / 2);
-      const next = new Date(mid);
-      next.setUTCDate(mid.getUTCDate() + 1);
-      const left = await fetchPages(counter, date1, fmt(mid), token, goalIds);
-      const right = await fetchPages(counter, fmt(next), date2, token, goalIds);
-      return [...left, ...right];
-    }
+    if (text.includes("too complicated")) return retry();
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
   }
   const json = await res.json();
-  return (json.data || []).map(
-    (row: { dimensions: { name: string }[]; metrics: number[] }) => {
-      // лиды = сумма достижений всех лид-целей (метрики после первых пяти трафиковых)
-      let leads = 0;
-      for (let i = 5; i < row.metrics.length; i++) leads += row.metrics[i] || 0;
-      return {
-        url: row.dimensions[0].name,
-        date: row.dimensions[1].name,
-        visits: Math.round(row.metrics[0] || 0),
-        visitors: Math.round(row.metrics[1] || 0),
-        pageviews: Math.round(row.metrics[2] || 0),
-        bounceRate: Math.round((row.metrics[3] || 0) * 10) / 10,
-        avgDuration: Math.round(row.metrics[4] || 0),
-        leads: Math.round(leads),
-      };
-    }
-  );
+  return json.data || [];
+}
+
+// Трафик по страницам входа × дням (органика). leads тут 0 — считаем отдельно.
+async function fetchPages(counter: string, date1: string, date2: string, token: string): Promise<Row[]> {
+  const params = new URLSearchParams({
+    ids: counter,
+    metrics: "ym:s:visits,ym:s:users,ym:s:pageviews,ym:s:bounceRate,ym:s:avgVisitDuration",
+    dimensions: "ym:s:startURL,ym:s:date",
+    filters: "ym:s:lastsignTrafficSource=='organic'",
+    date1, date2, limit: "100000",
+  });
+  const split = async (): Promise<Row[]> => {
+    if (date1 >= date2) return [];
+    const mid = new Date((new Date(date1).getTime() + new Date(date2).getTime()) / 2);
+    const next = new Date(mid); next.setUTCDate(mid.getUTCDate() + 1);
+    return [...(await fetchPages(counter, date1, fmt(mid), token)), ...(await fetchPages(counter, fmt(next), date2, token))];
+  };
+  const data = await metrikaData(params, token, split as () => Promise<unknown[]>);
+  return (data as { dimensions: { name: string }[]; metrics: number[] }[]).map((row) => ({
+    url: row.dimensions[0].name,
+    date: row.dimensions[1].name,
+    visits: Math.round(row.metrics[0] || 0),
+    visitors: Math.round(row.metrics[1] || 0),
+    pageviews: Math.round(row.metrics[2] || 0),
+    bounceRate: Math.round((row.metrics[3] || 0) * 10) / 10,
+    avgDuration: Math.round(row.metrics[4] || 0),
+    leads: 0,
+  }));
+}
+
+// Лиды = УНИКАЛЬНЫЕ визиты с хотя бы одной лид-целью (без двойного счёта обращений).
+// Сегмент «любая лид-цель» + метрика visits, разрез startURL × дата.
+async function fetchLeadVisits(
+  counter: string, date1: string, date2: string, token: string, goalIds: number[]
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!goalIds.length) return out;
+  const seg = goalIds.map((id) => `ym:s:goal=='${id}'`).join(" OR ");
+  const params = new URLSearchParams({
+    ids: counter,
+    metrics: "ym:s:visits",
+    dimensions: "ym:s:startURL,ym:s:date",
+    filters: `(${seg}) AND ym:s:lastsignTrafficSource=='organic'`,
+    date1, date2, limit: "100000",
+  });
+  const split = async (): Promise<unknown[]> => {
+    if (date1 >= date2) return [];
+    const mid = new Date((new Date(date1).getTime() + new Date(date2).getTime()) / 2);
+    const next = new Date(mid); next.setUTCDate(mid.getUTCDate() + 1);
+    const l = await fetchLeadVisits(counter, date1, fmt(mid), token, goalIds);
+    const r = await fetchLeadVisits(counter, fmt(next), date2, token, goalIds);
+    for (const m of [l, r]) for (const [k, v] of m) out.set(k, (out.get(k) || 0) + v);
+    return [];
+  };
+  const data = await metrikaData(params, token, split);
+  for (const row of data as { dimensions: { name: string }[]; metrics: number[] }[]) {
+    out.set(`${row.dimensions[0].name}|${row.dimensions[1].name}`, Math.round(row.metrics[0] || 0));
+  }
+  return out;
 }
 
 function chunk<T>(arr: T[], n: number): T[][] {
@@ -183,9 +199,12 @@ async function main() {
     const goalIds = await fetchLeadGoals(site.metrikaCounter!, token);
     try {
       for (const w of wins) {
-        const rows = (await fetchPages(site.metrikaCounter!, w.date1, w.date2, token, goalIds)).filter(
+        const rows = (await fetchPages(site.metrikaCounter!, w.date1, w.date2, token)).filter(
           (r) => r.visits > 0 && r.url
         );
+        // лиды = уникальные лид-визиты, мерджим по url×дата
+        const leadMap = await fetchLeadVisits(site.metrikaCounter!, w.date1, w.date2, token, goalIds);
+        for (const r of rows) r.leads = leadMap.get(`${r.url}|${r.date}`) || 0;
         siteRows += rows.length;
         siteVisits += rows.reduce((s, r) => s + r.visits, 0);
         siteLeads += rows.reduce((s, r) => s + r.leads, 0);
