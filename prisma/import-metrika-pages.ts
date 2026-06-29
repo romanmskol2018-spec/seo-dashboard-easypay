@@ -11,9 +11,43 @@ const prisma = new PrismaClient({
   datasourceUrl: process.env.DIRECT_URL || process.env.DATABASE_URL,
 });
 const API = "https://api-metrika.yandex.net/stat/v1/data";
+const MGMT = "https://api-metrika.yandex.net/management/v1";
 
 function fmt(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+// Лид-цели = «обращения»: контактные данные + телефон/мессенджер/email/звонок,
+// плюс action-цели вида «заявка/форма/оформление/карту». Шум (длительность визита,
+// поиск, скачивание файла, соцсети, отменённые CRM-заказы) НЕ считаем.
+const LEAD_TYPES = new Set([
+  "contact_data",
+  "contact_data_sent",
+  "phone",
+  "messenger",
+  "email",
+  "call",
+]);
+const LEAD_NAME_RE = /заявк|форм|оформл|контакт|карту|обращен|request|provided contact|lead/i;
+
+async function fetchLeadGoals(counter: string, token: string): Promise<number[]> {
+  try {
+    const res = await fetch(`${MGMT}/counter/${counter}/goals`, {
+      headers: { Authorization: `OAuth ${token}` },
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const goals = (json.goals || []) as { id: number; name: string; type: string }[];
+    return goals
+      .filter(
+        (g) =>
+          LEAD_TYPES.has(g.type) ||
+          ((g.type === "action" || g.type === "a_begin_checkout") && LEAD_NAME_RE.test(g.name || ""))
+      )
+      .map((g) => g.id);
+  } catch {
+    return [];
+  }
 }
 
 // Окна по 90 дней от сегодня назад на `days` (Метрика не любит длинные 2D-запросы)
@@ -51,18 +85,22 @@ type Row = {
   pageviews: number;
   bounceRate: number;
   avgDuration: number;
+  leads: number;
 };
 
-// Трафик по страницам входа × дням за один интервал
+// Трафик + лиды по страницам входа × дням за один интервал.
+// goalIds — лид-цели счётчика; их достижения суммируются в leads.
 async function fetchPages(
   counter: string,
   date1: string,
   date2: string,
-  token: string
+  token: string,
+  goalIds: number[]
 ): Promise<Row[]> {
+  const goalMetrics = goalIds.map((id) => `ym:s:goal${id}reaches`);
   const params = new URLSearchParams({
     ids: counter,
-    metrics: "ym:s:visits,ym:s:users,ym:s:pageviews,ym:s:bounceRate,ym:s:avgVisitDuration",
+    metrics: ["ym:s:visits,ym:s:users,ym:s:pageviews,ym:s:bounceRate,ym:s:avgVisitDuration", ...goalMetrics].join(","),
     dimensions: "ym:s:startURL,ym:s:date",
     filters: "ym:s:lastsignTrafficSource=='organic'",
     date1,
@@ -90,23 +128,29 @@ async function fetchPages(
       const mid = new Date((a + b) / 2);
       const next = new Date(mid);
       next.setUTCDate(mid.getUTCDate() + 1);
-      const left = await fetchPages(counter, date1, fmt(mid), token);
-      const right = await fetchPages(counter, fmt(next), date2, token);
+      const left = await fetchPages(counter, date1, fmt(mid), token, goalIds);
+      const right = await fetchPages(counter, fmt(next), date2, token, goalIds);
       return [...left, ...right];
     }
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
   }
   const json = await res.json();
   return (json.data || []).map(
-    (row: { dimensions: { name: string }[]; metrics: number[] }) => ({
-      url: row.dimensions[0].name,
-      date: row.dimensions[1].name,
-      visits: Math.round(row.metrics[0] || 0),
-      visitors: Math.round(row.metrics[1] || 0),
-      pageviews: Math.round(row.metrics[2] || 0),
-      bounceRate: Math.round((row.metrics[3] || 0) * 10) / 10,
-      avgDuration: Math.round(row.metrics[4] || 0),
-    })
+    (row: { dimensions: { name: string }[]; metrics: number[] }) => {
+      // лиды = сумма достижений всех лид-целей (метрики после первых пяти трафиковых)
+      let leads = 0;
+      for (let i = 5; i < row.metrics.length; i++) leads += row.metrics[i] || 0;
+      return {
+        url: row.dimensions[0].name,
+        date: row.dimensions[1].name,
+        visits: Math.round(row.metrics[0] || 0),
+        visitors: Math.round(row.metrics[1] || 0),
+        pageviews: Math.round(row.metrics[2] || 0),
+        bounceRate: Math.round((row.metrics[3] || 0) * 10) / 10,
+        avgDuration: Math.round(row.metrics[4] || 0),
+        leads: Math.round(leads),
+      };
+    }
   );
 }
 
@@ -137,13 +181,16 @@ async function main() {
   for (const site of sites) {
     let siteRows = 0;
     let siteVisits = 0;
+    let siteLeads = 0;
+    const goalIds = await fetchLeadGoals(site.metrikaCounter!, token);
     try {
       for (const w of wins) {
-        const rows = (await fetchPages(site.metrikaCounter!, w.date1, w.date2, token)).filter(
+        const rows = (await fetchPages(site.metrikaCounter!, w.date1, w.date2, token, goalIds)).filter(
           (r) => r.visits > 0 && r.url
         );
         siteRows += rows.length;
         siteVisits += rows.reduce((s, r) => s + r.visits, 0);
+        siteLeads += rows.reduce((s, r) => s + r.leads, 0);
         if (write && rows.length) {
           // точечная замена этого окна по сайту (старое за пределами окна не трогаем)
           await prisma.articleStat.deleteMany({
@@ -159,6 +206,7 @@ async function main() {
             pageviews: r.pageviews,
             bounceRate: r.bounceRate,
             avgDuration: r.avgDuration,
+            leads: r.leads,
           }));
           for (const part of chunk(data, 3000)) {
             const c = await prisma.articleStat.createMany({ data: part, skipDuplicates: true });
@@ -167,7 +215,7 @@ async function main() {
         }
         await new Promise((r) => setTimeout(r, 250));
       }
-      console.log(`  ✓ ${site.name} (${site.domain}): ${siteRows} строк URL×день · ${siteVisits} визитов`);
+      console.log(`  ✓ ${site.name} (${site.domain}): ${siteRows} строк · ${siteVisits} визитов · ${siteLeads} лидов · целей: ${goalIds.length}`);
     } catch (e) {
       console.log(`  ✗ ${site.name}: ${(e as Error).message}`);
     }
