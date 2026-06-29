@@ -17,9 +17,10 @@ function fmt(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Лид-цели = «обращения»: контактные данные + телефон/мессенджер/email/звонок,
-// плюс action-цели вида «заявка/форма/оформление/карту». Шум (длительность визита,
-// поиск, скачивание файла, соцсети, отменённые CRM-заказы) НЕ считаем.
+// Лид-цели = настоящие ОБРАЩЕНИЯ: контактные данные + клики по телефону/мессенджеру/
+// email + звонок (по типу цели), плюс action-цели «отправка формы / заявка / спасибо».
+// НЕ считаем микро-конверсии воронки («выбрать карту», «начало оформления»),
+// длительность визита, поиск, скачивание файла, соцсети, отменённые CRM-заказы.
 const LEAD_TYPES = new Set([
   "contact_data",
   "contact_data_sent",
@@ -28,7 +29,8 @@ const LEAD_TYPES = new Set([
   "email",
   "call",
 ]);
-const LEAD_NAME_RE = /заявк|форм|оформл|контакт|карту|обращен|request|provided contact|lead/i;
+// только для action-целей: явная отправка формы/заявки/обращение
+const LEAD_NAME_RE = /заявк|отправк|форм|оставил|обратн|спасибо|thank|provided contact/i;
 
 async function fetchLeadGoals(counter: string, token: string): Promise<number[]> {
   try {
@@ -39,11 +41,7 @@ async function fetchLeadGoals(counter: string, token: string): Promise<number[]>
     const json = await res.json();
     const goals = (json.goals || []) as { id: number; name: string; type: string }[];
     return goals
-      .filter(
-        (g) =>
-          LEAD_TYPES.has(g.type) ||
-          ((g.type === "action" || g.type === "a_begin_checkout") && LEAD_NAME_RE.test(g.name || ""))
-      )
+      .filter((g) => LEAD_TYPES.has(g.type) || (g.type === "action" && LEAD_NAME_RE.test(g.name || "")))
       .map((g) => g.id);
   } catch {
     return [];
