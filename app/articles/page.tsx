@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { TabNav } from "@/components/TabNav";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Icon } from "@/components/Icon";
-import { formatNumber, formatDelta, formatPct, formatDuration } from "@/lib/format";
+import { formatNumber, formatDelta, formatPct, formatDuration, formatDateShort } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -44,23 +44,32 @@ function Sparkline({ points }: { points: number[] }) {
   );
 }
 
+type SortKey = "visits" | "modified" | "delta";
+
 export default async function ArticlesPage(props: {
-  searchParams: Promise<{ site?: string; from?: string; to?: string; articles?: string }>;
+  searchParams: Promise<{
+    site?: string;
+    from?: string;
+    to?: string;
+    articles?: string;
+    sort?: string;
+  }>;
 }) {
-  const { site, from, to, articles } = await props.searchParams;
+  const { site, from, to, articles, sort } = await props.searchParams;
   const onlyArticles = articles === "1";
+  const sortKey: SortKey = sort === "modified" || sort === "delta" ? sort : "visits";
   const user = await getSessionUser().catch(() => null);
 
   let data: Awaited<ReturnType<typeof getArticlesData>> | undefined;
   let dbError = false;
   try {
-    data = await getArticlesData(site || "ALL", from || null, to || null, onlyArticles);
+    data = await getArticlesData(site || "ALL", from || null, to || null, onlyArticles, sortKey);
   } catch {
     dbError = true;
   }
 
   const activeSite = site && data?.sites.includes(site) ? site : "ALL";
-  const buildHref = (over: { site?: string; articles?: boolean }) => {
+  const buildHref = (over: { site?: string; articles?: boolean; sort?: SortKey }) => {
     const sp = new URLSearchParams();
     if (data?.rangeFrom) sp.set("from", data.rangeFrom);
     if (data?.rangeTo) sp.set("to", data.rangeTo);
@@ -68,6 +77,8 @@ export default async function ArticlesPage(props: {
     if (s !== "ALL") sp.set("site", s);
     const a = over.articles ?? onlyArticles;
     if (a) sp.set("articles", "1");
+    const so = over.sort ?? sortKey;
+    if (so !== "visits") sp.set("sort", so);
     return `/articles?${sp.toString()}`;
   };
 
@@ -143,6 +154,8 @@ export default async function ArticlesPage(props: {
                 max={data.bounds!.max}
                 from={data.rangeFrom}
                 to={data.rangeTo}
+                site={activeSite}
+                onlyArticles={onlyArticles}
               />
             </div>
           </div>
@@ -186,21 +199,44 @@ export default async function ArticlesPage(props: {
             ) : (
               <span />
             )}
-            <Link
-              href={buildHref({ articles: !onlyArticles })}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition ${
-                onlyArticles
-                  ? "bg-accent/15 text-accent border-accent"
-                  : "bg-surface text-muted border-border hover:border-accent"
-              }`}
-            >
-              {onlyArticles ? (
-                <Icon name="check" className="w-4 h-4" />
-              ) : (
-                <span className="w-3.5 h-3.5 rounded-sm border border-current opacity-60" />
-              )}
-              Только статьи
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Сортировка */}
+              <div className="inline-flex bg-surface-2 border border-border rounded-lg p-1 gap-0.5">
+                {(
+                  [
+                    { k: "visits", label: "По визитам" },
+                    { k: "modified", label: "По обновлению" },
+                    { k: "delta", label: "По росту" },
+                  ] as { k: SortKey; label: string }[]
+                ).map((o) => (
+                  <Link
+                    key={o.k}
+                    href={buildHref({ sort: o.k })}
+                    className={`px-2.5 py-1 text-xs rounded-md transition ${
+                      sortKey === o.k ? "bg-accent text-white" : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {o.label}
+                  </Link>
+                ))}
+              </div>
+              {/* Только статьи */}
+              <Link
+                href={buildHref({ articles: !onlyArticles })}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition ${
+                  onlyArticles
+                    ? "bg-accent/15 text-accent border-accent"
+                    : "bg-surface text-muted border-border hover:border-accent"
+                }`}
+              >
+                {onlyArticles ? (
+                  <Icon name="check" className="w-4 h-4" />
+                ) : (
+                  <span className="w-3.5 h-3.5 rounded-sm border border-current opacity-60" />
+                )}
+                Только статьи
+              </Link>
+            </div>
           </div>
 
           {/* Таблица */}
@@ -208,12 +244,13 @@ export default async function ArticlesPage(props: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-muted text-left border-b border-border">
-                  <th className="py-2 pr-4 font-medium">Страница</th>
+                  <th className="py-2 pr-4 font-medium">Статья / страница</th>
                   <th className="py-2 px-3 font-medium text-right">Визиты</th>
                   <th className="py-2 px-3 font-medium text-right">Динамика</th>
                   <th className="py-2 px-3 font-medium text-right">Посет.</th>
                   <th className="py-2 px-3 font-medium text-right">Отказы</th>
                   <th className="py-2 px-3 font-medium text-right">Время</th>
+                  <th className="py-2 px-3 font-medium text-right">Обновл.</th>
                   <th className="py-2 pl-3 font-medium text-right">Тренд</th>
                 </tr>
               </thead>
@@ -222,17 +259,38 @@ export default async function ArticlesPage(props: {
                   const d = formatDelta(r.deltaPct);
                   return (
                     <tr key={r.url} className="border-b border-border/50 last:border-0 align-top">
-                      <td className="py-3 pr-4 max-w-[360px]">
+                      <td className="py-3 pr-4 max-w-[420px]">
                         <a
                           href={r.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="font-medium hover:text-accent transition break-words"
+                          className="group flex items-start gap-3"
                           title={r.url}
                         >
-                          {r.path}
+                          {/* превью */}
+                          {r.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={r.image}
+                              alt=""
+                              loading="lazy"
+                              className="w-16 h-12 rounded-md object-cover border border-border shrink-0 bg-surface-2"
+                            />
+                          ) : (
+                            <span className="w-16 h-12 rounded-md border border-border shrink-0 bg-surface-2 grid place-items-center text-muted">
+                              <Icon name="globe" className="w-4 h-4" />
+                            </span>
+                          )}
+                          <span className="min-w-0">
+                            <span className="block font-medium leading-snug group-hover:text-accent transition line-clamp-2">
+                              {r.title || r.path}
+                            </span>
+                            <span className="block text-muted text-xs truncate">
+                              {data.sites.length > 1 ? `${r.site} · ` : ""}
+                              {r.path}
+                            </span>
+                          </span>
                         </a>
-                        {data.sites.length > 1 && <div className="text-muted text-xs">{r.site}</div>}
                       </td>
                       <td className="py-3 px-3 text-right font-semibold tabular-nums">
                         {formatNumber(r.visits)}
@@ -258,6 +316,9 @@ export default async function ArticlesPage(props: {
                       </td>
                       <td className="py-3 px-3 text-right tabular-nums text-muted">
                         {formatDuration(r.avgDuration)}
+                      </td>
+                      <td className="py-3 px-3 text-right tabular-nums text-muted whitespace-nowrap">
+                        {r.modified ? formatDateShort(r.modified) : "—"}
                       </td>
                       <td className="py-3 pl-3 text-right">
                         <div className="flex justify-end">
