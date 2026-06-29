@@ -7,7 +7,7 @@ import { Icon, type IconName } from "@/components/Icon";
 const TABS: { href: string; label: string; icon: IconName; soon?: boolean }[] = [
   { href: "/", label: "Обзор", icon: "chart" },
   { href: "/articles", label: "Статьи", icon: "search" },
-  { href: "/placements", label: "Площадки", icon: "link", soon: true },
+  { href: "/placements", label: "Площадки", icon: "link" },
 ];
 
 export function TabNav() {

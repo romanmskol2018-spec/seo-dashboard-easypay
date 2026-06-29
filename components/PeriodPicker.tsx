@@ -1,5 +1,6 @@
 // Единый выбор периода: пресеты-ССЫЛКИ (работают без JS, не зависят от гидратации)
-// + диапазон по датам через GET-форму. Меняет from/to (YYYY-MM-DD), сохраняя site/articles.
+// + диапазон по датам через GET-форму. Меняет from/to (YYYY-MM-DD), сохраняя
+// произвольные параметры страницы (site/articles/sort) через `params`.
 import Link from "next/link";
 
 const DAY = 86400000;
@@ -10,15 +11,15 @@ export function PeriodPicker({
   max,
   from,
   to,
-  site,
-  onlyArticles,
+  basePath,
+  params = {},
 }: {
   min: string;
   max: string;
   from: string;
   to: string;
-  site: string;
-  onlyArticles: boolean;
+  basePath: string;
+  params?: Record<string, string>;
 }) {
   const minT = new Date(min).getTime();
   const maxT = new Date(max).getTime();
@@ -28,9 +29,8 @@ export function PeriodPicker({
     const p = new URLSearchParams();
     p.set("from", nf);
     p.set("to", nt);
-    if (site && site !== "ALL") p.set("site", site);
-    if (onlyArticles) p.set("articles", "1");
-    return `/articles?${p.toString()}`;
+    for (const [k, v] of Object.entries(params)) if (v) p.set(k, v);
+    return `${basePath}?${p.toString()}`;
   };
 
   const ref = new Date(max);
@@ -68,17 +68,13 @@ export function PeriodPicker({
       </div>
 
       {/* Свой диапазон — GET-форма (работает без JS) */}
-      <form action="/articles" method="get" className="flex items-center gap-1.5 text-xs text-muted">
+      <form action={basePath} method="get" className="flex items-center gap-1.5 text-xs text-muted">
         <span>с</span>
         <input type="date" name="from" defaultValue={from} min={min} max={max} className={inputCls} />
         <span>по</span>
         <input type="date" name="to" defaultValue={to} min={min} max={max} className={inputCls} />
-        {site && site !== "ALL" && <input type="hidden" name="site" value={site} />}
-        {onlyArticles && <input type="hidden" name="articles" value="1" />}
-        <button
-          type="submit"
-          className="px-2.5 py-1.5 rounded-lg bg-accent text-white hover:opacity-90 transition"
-        >
+        {Object.entries(params).map(([k, v]) => (v ? <input key={k} type="hidden" name={k} value={v} /> : null))}
+        <button type="submit" className="px-2.5 py-1.5 rounded-lg bg-accent text-white hover:opacity-90 transition">
           Применить
         </button>
       </form>
