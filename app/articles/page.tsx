@@ -4,24 +4,33 @@ import { getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/components/StatCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TabNav } from "@/components/TabNav";
-import { WeekRangePicker } from "@/components/WeekRangePicker";
+import { PeriodPicker } from "@/components/PeriodPicker";
 import { Icon } from "@/components/Icon";
-import {
-  formatNumber,
-  formatDelta,
-  formatPct,
-  formatDuration,
-} from "@/lib/format";
+import { formatNumber, formatDelta, formatPct, formatDuration } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-// Маленький спарклайн (SVG, серверный рендер) — тренд визитов по неделям окна.
+function formatRange(from: string, to: string): string {
+  const f = new Date(from);
+  const t = new Date(to);
+  const sameYear = f.getUTCFullYear() === t.getUTCFullYear();
+  const dM = (d: Date, withYear: boolean) =>
+    new Intl.DateTimeFormat("ru-RU", {
+      day: "numeric",
+      month: "long",
+      year: withYear ? "numeric" : undefined,
+      timeZone: "UTC",
+    }).format(d);
+  return `${dM(f, !sameYear)} – ${dM(t, true)}`;
+}
+
+// Спарклайн (SVG, серверный рендер) — тренд визитов по неделям периода.
 function Sparkline({ points }: { points: number[] }) {
   const w = 96;
   const h = 24;
-  if (points.length === 0) return <span className="text-muted">—</span>;
+  if (points.length < 2) return <span className="text-muted text-xs">—</span>;
   const max = Math.max(...points, 1);
-  const stepX = points.length > 1 ? w / (points.length - 1) : 0;
+  const stepX = w / (points.length - 1);
   const coords = points.map((v, i) => [i * stepX, h - (v / max) * (h - 3) - 1.5]);
   const d = coords.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const last = coords[coords.length - 1];
@@ -36,29 +45,34 @@ function Sparkline({ points }: { points: number[] }) {
 }
 
 export default async function ArticlesPage(props: {
-  searchParams: Promise<{ site?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ site?: string; from?: string; to?: string; articles?: string }>;
 }) {
-  const { site, from, to } = await props.searchParams;
+  const { site, from, to, articles } = await props.searchParams;
+  const onlyArticles = articles === "1";
   const user = await getSessionUser().catch(() => null);
 
   let data: Awaited<ReturnType<typeof getArticlesData>> | undefined;
   let dbError = false;
   try {
-    data = await getArticlesData(site || "ALL", from || null, to || null);
+    data = await getArticlesData(site || "ALL", from || null, to || null, onlyArticles);
   } catch {
     dbError = true;
   }
 
   const activeSite = site && data?.sites.includes(site) ? site : "ALL";
-  const siteHref = (s: string) => {
+  const buildHref = (over: { site?: string; articles?: boolean }) => {
     const sp = new URLSearchParams();
     if (data?.rangeFrom) sp.set("from", data.rangeFrom);
     if (data?.rangeTo) sp.set("to", data.rangeTo);
+    const s = over.site ?? activeSite;
     if (s !== "ALL") sp.set("site", s);
+    const a = over.articles ?? onlyArticles;
+    if (a) sp.set("articles", "1");
     return `/articles?${sp.toString()}`;
   };
 
   const hasData = !!data && data.rows.length > 0;
+  const hasBounds = !!data?.bounds;
 
   return (
     <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
@@ -70,7 +84,7 @@ export default async function ArticlesPage(props: {
           </span>
           <div>
             <h1 className="text-xl font-semibold leading-tight">Дашборд EasyPay</h1>
-            <p className="text-muted text-sm">Статьи: какая приводит людей, какая нет</p>
+            <p className="text-muted text-sm">Статьи: какая приводит людей из поиска</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -96,71 +110,100 @@ export default async function ArticlesPage(props: {
         </div>
       )}
 
-      {!dbError && !hasData && (
+      {!dbError && !hasBounds && (
         <div className="bg-surface border border-border rounded-2xl p-8 text-center">
           <div className="font-medium mb-1">Данные по статьям ещё не загружены</div>
           <p className="text-muted text-sm">
-            Запусти <code>npm run import:metrika:pages -- --write</code> — он соберёт трафик
-            по страницам входа из Метрики (только органика) за последние недели.
+            Запусти <code>npm run import:metrika:pages -- --days=365 --write</code> — соберёт
+            дневной трафик по страницам входа из Метрики (только органика).
           </p>
         </div>
       )}
 
-      {!dbError && hasData && data && (
+      {!dbError && hasBounds && data && (
         <>
-          {/* Заголовок периода + пикер */}
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-            <div className="flex items-center gap-2 text-sm">
-              <Icon name="sliders" className="w-4 h-4 text-muted" />
-              <span className="font-medium">Трафик по статьям</span>
-              {data.rangeFrom && (
-                <span className="text-muted">· {data.rangeFrom} – {data.rangeTo}</span>
-              )}
-            </div>
-            {data.rangeFrom && data.rangeTo && (
-              <WeekRangePicker
-                weeks={data.weeks}
+          {/* Период — одна понятная строка + селектор */}
+          <div className="bg-surface border border-border rounded-2xl p-4 mb-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent/15 text-accent shrink-0">
+                  <Icon name="sliders" className="w-5 h-5" />
+                </span>
+                <div>
+                  <div className="font-semibold leading-tight">
+                    {formatRange(data.rangeFrom, data.rangeTo)}
+                  </div>
+                  <div className="text-muted text-xs">
+                    только органический трафик (SEO) · из Яндекс.Метрики
+                  </div>
+                </div>
+              </div>
+              <PeriodPicker
+                min={data.bounds!.min}
+                max={data.bounds!.max}
                 from={data.rangeFrom}
                 to={data.rangeTo}
-                basePath="/articles"
               />
-            )}
+            </div>
           </div>
 
           {/* KPI */}
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
-              label="Визиты (органика)"
+              label="Визиты из поиска"
               value={formatNumber(data.totals.visits)}
               delta={data.totals.deltaPct}
-              hint="к пред. периоду"
+              hint="к пред. периоду той же длины"
               icon="trending"
             />
             <StatCard label="Посетители" value={formatNumber(data.totals.visitors)} icon="users" />
             <StatCard label="Просмотры" value={formatNumber(data.totals.pageviews)} icon="eye" />
-            <StatCard label="Статей с трафиком" value={formatNumber(data.totals.articles)} icon="search" />
+            <StatCard
+              label={onlyArticles ? "Статей с трафиком" : "Страниц с трафиком"}
+              value={formatNumber(data.totals.pages)}
+              icon="search"
+            />
           </section>
 
-          {/* Фильтр по сайту */}
-          {data.sites.length > 1 && (
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              {["ALL", ...data.sites].map((s) => (
-                <Link
-                  key={s}
-                  href={siteHref(s)}
-                  className={`px-3 py-1.5 text-xs rounded-lg border transition ${
-                    s === activeSite
-                      ? "bg-accent/15 text-accent border-accent"
-                      : "bg-surface text-muted border-border hover:border-accent"
-                  }`}
-                >
-                  {s === "ALL" ? "Все сайты" : s}
-                </Link>
-              ))}
-            </div>
-          )}
+          {/* Фильтры: сайт + только статьи */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            {data.sites.length > 1 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {["ALL", ...data.sites].map((s) => (
+                  <Link
+                    key={s}
+                    href={buildHref({ site: s })}
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition ${
+                      s === activeSite
+                        ? "bg-accent/15 text-accent border-accent"
+                        : "bg-surface text-muted border-border hover:border-accent"
+                    }`}
+                  >
+                    {s === "ALL" ? "Все сайты" : s}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <span />
+            )}
+            <Link
+              href={buildHref({ articles: !onlyArticles })}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition ${
+                onlyArticles
+                  ? "bg-accent/15 text-accent border-accent"
+                  : "bg-surface text-muted border-border hover:border-accent"
+              }`}
+            >
+              {onlyArticles ? (
+                <Icon name="check" className="w-4 h-4" />
+              ) : (
+                <span className="w-3.5 h-3.5 rounded-sm border border-current opacity-60" />
+              )}
+              Только статьи
+            </Link>
+          </div>
 
-          {/* Таблица статей */}
+          {/* Таблица */}
           <section className="bg-surface border border-border rounded-2xl p-5 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -189,9 +232,7 @@ export default async function ArticlesPage(props: {
                         >
                           {r.path}
                         </a>
-                        {data.sites.length > 1 && (
-                          <div className="text-muted text-xs">{r.site}</div>
-                        )}
+                        {data.sites.length > 1 && <div className="text-muted text-xs">{r.site}</div>}
                       </td>
                       <td className="py-3 px-3 text-right font-semibold tabular-nums">
                         {formatNumber(r.visits)}
@@ -220,7 +261,7 @@ export default async function ArticlesPage(props: {
                       </td>
                       <td className="py-3 pl-3 text-right">
                         <div className="flex justify-end">
-                          <Sparkline points={r.trend.map((t) => t.visits)} />
+                          <Sparkline points={r.trend} />
                         </div>
                       </td>
                     </tr>
@@ -228,9 +269,15 @@ export default async function ArticlesPage(props: {
                 })}
               </tbody>
             </table>
+            {data.rows.length === 0 && (
+              <p className="text-muted text-sm text-center py-6">
+                За этот период данных нет. Поменяй период или выключи «только статьи».
+              </p>
+            )}
             <p className="text-muted text-xs mt-3">
-              Источник — Яндекс.Метрика, страница входа (ym:s:startURL), только органический трафик.
-              Динамика — к предыдущему периоду той же длины. Лиды по статьям появятся в Фазе 2.
+              Источник — Яндекс.Метрика, страница входа (ym:s:startURL), только органика.
+              Динамика — к предыдущему периоду той же длины. Тренд — визиты по неделям периода.
+              Лиды по статьям появятся в Фазе 2.
             </p>
           </section>
         </>

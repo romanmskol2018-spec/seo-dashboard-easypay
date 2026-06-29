@@ -1,12 +1,11 @@
 import { prisma } from "./prisma";
 
 // ---------- типы ----------
-export type ArticleWeek = { weekStart: string; label: string };
-
 export type ArticleRow = {
   url: string;
   path: string;
   site: string;
+  isArticle: boolean;
   visits: number;
   visitors: number;
   pageviews: number;
@@ -14,38 +13,35 @@ export type ArticleRow = {
   deltaPct: number | null; // null = не с чем сравнивать
   bounceRate: number; // средневзвешенный, %
   avgDuration: number; // средневзвешенная, сек
-  trend: { weekStart: string; label: string; visits: number }[];
+  trend: number[]; // визиты по неделям внутри периода (для спарклайна)
 };
 
 export type ArticlesData = {
   sites: string[];
-  weeks: ArticleWeek[];
-  rangeFrom: string | null;
-  rangeTo: string | null;
+  bounds: { min: string; max: string } | null; // доступный диапазон дат
+  rangeFrom: string;
+  rangeTo: string;
+  onlyArticles: boolean;
   totals: {
     visits: number;
     visitors: number;
     pageviews: number;
     prevVisits: number;
     deltaPct: number | null;
-    articles: number;
+    pages: number;
   };
   rows: ArticleRow[];
 };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+const DAY = 86400000;
 
-// Список недель, по которым есть данные ArticleStat (для пикера периода).
-export async function getArticleWeeks(): Promise<ArticleWeek[]> {
-  const rows = await prisma.articleStat.findMany({
-    distinct: ["weekStart"],
-    orderBy: { weekStart: "asc" },
-    select: { weekStart: true, weekLabel: true },
-  });
-  return rows.map((r) => ({ weekStart: iso(r.weekStart), label: r.weekLabel }));
+// Контент-страница (статья) = путь минимум из 2 сегментов (/blog/slug),
+// чтобы отсечь главную «/» и языковые корни «/kz», «/ar».
+function isArticlePath(path: string): boolean {
+  return path.split("/").filter(Boolean).length >= 2;
 }
 
-// Список сайтов, по которым есть данные.
 export async function getArticleSites(): Promise<string[]> {
   const rows = await prisma.articleStat.findMany({
     distinct: ["site"],
@@ -55,76 +51,90 @@ export async function getArticleSites(): Promise<string[]> {
   return rows.map((r) => r.site);
 }
 
+async function getBounds(): Promise<{ min: string; max: string } | null> {
+  const min = await prisma.articleStat.findFirst({ orderBy: { date: "asc" }, select: { date: true } });
+  const max = await prisma.articleStat.findFirst({ orderBy: { date: "desc" }, select: { date: true } });
+  if (!min || !max) return null;
+  return { min: iso(min.date), max: iso(max.date) };
+}
+
 function deltaPct(curr: number, prev: number): number | null {
   if (prev <= 0) return null;
   return Math.round(((curr - prev) / prev) * 1000) / 10;
 }
 
-// Главная выборка: статьи в окне [from, to], сравнение с предыдущим окном той же длины.
+// Понедельник недели для даты (для бакетов спарклайна)
+function weekKey(d: Date): number {
+  const day = (d.getUTCDay() + 6) % 7; // 0 = понедельник
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - day * DAY;
+}
+
 export async function getArticlesData(
   site: string | "ALL",
   from: string | null,
-  to: string | null
+  to: string | null,
+  onlyArticles: boolean
 ): Promise<ArticlesData> {
-  const allWeeks = await getArticleWeeks();
   const sites = await getArticleSites();
-  if (allWeeks.length === 0) {
+  const bounds = await getBounds();
+  if (!bounds) {
     return {
       sites,
-      weeks: [],
-      rangeFrom: null,
-      rangeTo: null,
-      totals: { visits: 0, visitors: 0, pageviews: 0, prevVisits: 0, deltaPct: null, articles: 0 },
+      bounds: null,
+      rangeFrom: from || "",
+      rangeTo: to || "",
+      onlyArticles,
+      totals: { visits: 0, visitors: 0, pageviews: 0, prevVisits: 0, deltaPct: null, pages: 0 },
       rows: [],
     };
   }
 
-  const starts = allWeeks.map((w) => w.weekStart);
-  let rangeFrom = from && starts.includes(from) ? from : starts[0];
-  let rangeTo = to && starts.includes(to) ? to : starts[starts.length - 1];
+  // Резолвим диапазон: по умолчанию последние 30 дней доступных данных.
+  const clamp = (d: string) => (d < bounds.min ? bounds.min : d > bounds.max ? bounds.max : d);
+  let rangeTo = to ? clamp(to) : bounds.max;
+  let rangeFrom = from ? clamp(from) : iso(new Date(new Date(rangeTo).getTime() - 29 * DAY));
   if (rangeFrom > rangeTo) rangeFrom = rangeTo;
 
-  const fromIdx = starts.indexOf(rangeFrom);
-  const toIdx = starts.indexOf(rangeTo);
-  const winLen = toIdx - fromIdx + 1;
-  // предыдущее окно той же длины, сразу перед текущим (сколько есть)
-  const prevFromIdx = Math.max(0, fromIdx - winLen);
-  const prevToIdx = fromIdx - 1;
-  const hasPrev = prevToIdx >= prevFromIdx;
+  const fromD = new Date(rangeFrom);
+  const toD = new Date(rangeTo);
+  const lenDays = Math.round((toD.getTime() - fromD.getTime()) / DAY) + 1;
+  // предыдущий период той же длины, впритык перед текущим
+  const prevTo = new Date(fromD.getTime() - DAY);
+  const prevFrom = new Date(prevTo.getTime() - (lenDays - 1) * DAY);
 
   const whereSite = site && site !== "ALL" ? { site } : {};
 
-  // текущее окно
   const cur = await prisma.articleStat.findMany({
-    where: { ...whereSite, weekStart: { gte: new Date(rangeFrom), lte: new Date(rangeTo) } },
+    where: { ...whereSite, date: { gte: fromD, lte: toD } },
     select: {
-      site: true, url: true, path: true, weekStart: true, weekLabel: true,
+      site: true, url: true, path: true, date: true,
       visits: true, visitors: true, pageviews: true, bounceRate: true, avgDuration: true,
     },
   });
-  // предыдущее окно (только визиты для дельты)
-  const prev = hasPrev
-    ? await prisma.articleStat.findMany({
-        where: {
-          ...whereSite,
-          weekStart: { gte: new Date(starts[prevFromIdx]), lte: new Date(starts[prevToIdx]) },
-        },
-        select: { url: true, visits: true },
-      })
-    : [];
+  const prev = await prisma.articleStat.findMany({
+    where: { ...whereSite, date: { gte: prevFrom, lte: prevTo } },
+    select: { url: true, visits: true },
+  });
 
-  // агрегируем текущее по URL
+  // недельные бакеты для спарклайна
+  const buckets: number[] = [];
+  const bucketIndex = new Map<number, number>();
+  for (let t = weekKey(fromD); t <= toD.getTime(); t += 7 * DAY) {
+    bucketIndex.set(t, buckets.length);
+    buckets.push(t);
+  }
+
   type Acc = {
     url: string; path: string; site: string;
     visits: number; visitors: number; pageviews: number;
-    bounceW: number; durW: number; // взвешенные суммы (по визитам) для усреднения
-    trend: Map<string, { label: string; visits: number }>;
+    bounceW: number; durW: number;
+    trend: number[];
   };
   const byUrl = new Map<string, Acc>();
   for (const r of cur) {
     let a = byUrl.get(r.url);
     if (!a) {
-      a = { url: r.url, path: r.path, site: r.site, visits: 0, visitors: 0, pageviews: 0, bounceW: 0, durW: 0, trend: new Map() };
+      a = { url: r.url, path: r.path, site: r.site, visits: 0, visitors: 0, pageviews: 0, bounceW: 0, durW: 0, trend: new Array(buckets.length).fill(0) };
       byUrl.set(r.url, a);
     }
     a.visits += r.visits;
@@ -132,20 +142,19 @@ export async function getArticlesData(
     a.pageviews += r.pageviews;
     a.bounceW += r.bounceRate * r.visits;
     a.durW += r.avgDuration * r.visits;
-    a.trend.set(iso(r.weekStart), { label: r.weekLabel, visits: r.visits });
+    const bi = bucketIndex.get(weekKey(r.date));
+    if (bi !== undefined) a.trend[bi] += r.visits;
   }
   const prevByUrl = new Map<string, number>();
   for (const r of prev) prevByUrl.set(r.url, (prevByUrl.get(r.url) || 0) + r.visits);
 
-  // недели окна (для ровного спарклайна)
-  const winWeeks = allWeeks.slice(fromIdx, toIdx + 1);
-
-  const rows: ArticleRow[] = [...byUrl.values()].map((a) => {
+  let rows: ArticleRow[] = [...byUrl.values()].map((a) => {
     const prevVisits = prevByUrl.get(a.url) || 0;
     return {
       url: a.url,
       path: a.path,
       site: a.site,
+      isArticle: isArticlePath(a.path),
       visits: a.visits,
       visitors: a.visitors,
       pageviews: a.pageviews,
@@ -153,13 +162,10 @@ export async function getArticlesData(
       deltaPct: deltaPct(a.visits, prevVisits),
       bounceRate: a.visits ? Math.round((a.bounceW / a.visits) * 10) / 10 : 0,
       avgDuration: a.visits ? Math.round(a.durW / a.visits) : 0,
-      trend: winWeeks.map((w) => ({
-        weekStart: w.weekStart,
-        label: w.label,
-        visits: a.trend.get(w.weekStart)?.visits || 0,
-      })),
+      trend: a.trend,
     };
   });
+  if (onlyArticles) rows = rows.filter((r) => r.isArticle);
   rows.sort((x, y) => y.visits - x.visits);
 
   const totals = rows.reduce(
@@ -175,14 +181,11 @@ export async function getArticlesData(
 
   return {
     sites,
-    weeks: allWeeks,
+    bounds,
     rangeFrom,
     rangeTo,
-    totals: {
-      ...totals,
-      deltaPct: hasPrev ? deltaPct(totals.visits, totals.prevVisits) : null,
-      articles: rows.length,
-    },
+    onlyArticles,
+    totals: { ...totals, deltaPct: deltaPct(totals.visits, totals.prevVisits), pages: rows.length },
     rows,
   };
 }
