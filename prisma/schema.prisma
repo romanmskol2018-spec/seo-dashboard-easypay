@@ -150,3 +150,17 @@ model ArticleStat {
   @@index([date])
   @@index([site, date])
 }
+
+// Метаданные страницы (статьи): заголовок, превью-картинка, дата обновления.
+// Заполняется краулером enrich-articles (og:title/title, og:image, article:modified_time).
+// Нужно, чтобы в списке было видно НАЗВАНИЕ и КАРТИНКУ, а не только URL.
+model ArticlePage {
+  url       String    @id // полный URL — ключ (совпадает с ArticleStat.url)
+  site      String
+  title     String?   // заголовок страницы (og:title или <title>)
+  image     String?   // превью (og:image), абсолютный URL
+  modified  DateTime? // дата обновления (article:modified_time / Last-Modified)
+  fetchedAt DateTime  @updatedAt
+
+  @@index([site])
+}

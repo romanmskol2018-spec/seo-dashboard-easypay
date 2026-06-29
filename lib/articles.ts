@@ -1,11 +1,16 @@
 import { prisma } from "./prisma";
 
 // ---------- типы ----------
+export type SortKey = "visits" | "modified" | "delta";
+
 export type ArticleRow = {
   url: string;
   path: string;
   site: string;
   isArticle: boolean;
+  title: string | null;
+  image: string | null;
+  modified: string | null; // YYYY-MM-DD
   visits: number;
   visitors: number;
   pageviews: number;
@@ -22,6 +27,7 @@ export type ArticlesData = {
   rangeFrom: string;
   rangeTo: string;
   onlyArticles: boolean;
+  sort: SortKey;
   totals: {
     visits: number;
     visitors: number;
@@ -73,7 +79,8 @@ export async function getArticlesData(
   site: string | "ALL",
   from: string | null,
   to: string | null,
-  onlyArticles: boolean
+  onlyArticles: boolean,
+  sort: SortKey = "visits"
 ): Promise<ArticlesData> {
   const sites = await getArticleSites();
   const bounds = await getBounds();
@@ -84,6 +91,7 @@ export async function getArticlesData(
       rangeFrom: from || "",
       rangeTo: to || "",
       onlyArticles,
+      sort,
       totals: { visits: 0, visitors: 0, pageviews: 0, prevVisits: 0, deltaPct: null, pages: 0 },
       rows: [],
     };
@@ -148,13 +156,24 @@ export async function getArticlesData(
   const prevByUrl = new Map<string, number>();
   for (const r of prev) prevByUrl.set(r.url, (prevByUrl.get(r.url) || 0) + r.visits);
 
+  // метаданные страниц (заголовок/картинка/дата обновления)
+  const metaRows = await prisma.articlePage.findMany({
+    where: { url: { in: [...byUrl.keys()] } },
+    select: { url: true, title: true, image: true, modified: true },
+  });
+  const metaByUrl = new Map(metaRows.map((m) => [m.url, m]));
+
   let rows: ArticleRow[] = [...byUrl.values()].map((a) => {
     const prevVisits = prevByUrl.get(a.url) || 0;
+    const meta = metaByUrl.get(a.url);
     return {
       url: a.url,
       path: a.path,
       site: a.site,
       isArticle: isArticlePath(a.path),
+      title: meta?.title ?? null,
+      image: meta?.image ?? null,
+      modified: meta?.modified ? iso(meta.modified) : null,
       visits: a.visits,
       visitors: a.visitors,
       pageviews: a.pageviews,
@@ -166,7 +185,21 @@ export async function getArticlesData(
     };
   });
   if (onlyArticles) rows = rows.filter((r) => r.isArticle);
-  rows.sort((x, y) => y.visits - x.visits);
+
+  const byVisits = (x: ArticleRow, y: ArticleRow) => y.visits - x.visits;
+  if (sort === "modified") {
+    // по дате обновления (свежие сверху); без даты — вниз, дальше по визитам
+    rows.sort((x, y) => {
+      if (x.modified && y.modified) return x.modified < y.modified ? 1 : x.modified > y.modified ? -1 : byVisits(x, y);
+      if (x.modified) return -1;
+      if (y.modified) return 1;
+      return byVisits(x, y);
+    });
+  } else if (sort === "delta") {
+    rows.sort((x, y) => (y.deltaPct ?? -1e9) - (x.deltaPct ?? -1e9) || byVisits(x, y));
+  } else {
+    rows.sort(byVisits);
+  }
 
   const totals = rows.reduce(
     (s, r) => {
@@ -185,6 +218,7 @@ export async function getArticlesData(
     rangeFrom,
     rangeTo,
     onlyArticles,
+    sort,
     totals: { ...totals, deltaPct: deltaPct(totals.visits, totals.prevVisits), pages: rows.length },
     rows,
   };
