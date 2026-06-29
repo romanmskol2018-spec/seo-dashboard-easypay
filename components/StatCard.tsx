@@ -8,7 +8,7 @@ export function StatCard({
   hint,
   icon,
 }: {
-  label: string;
+  label: React.ReactNode;
   value: string;
   delta?: number | null;
   hint?: string;
