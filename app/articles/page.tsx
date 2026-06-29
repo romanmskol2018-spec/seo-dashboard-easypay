@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getArticlesData } from "@/lib/articles";
+import { getKeywordSummaryByUrl } from "@/lib/keywords";
 import { getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/components/StatCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -85,6 +86,11 @@ export default async function ArticlesPage(props: {
 
   const hasData = !!data && data.rows.length > 0;
   const hasBounds = !!data?.bounds;
+
+  // сводка позиций (Топвизор) по URL — для колонки «Запросы»
+  const kwByUrl = data
+    ? await getKeywordSummaryByUrl(data.rows.map((r) => r.url)).catch(() => new Map())
+    : new Map();
 
   return (
     <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
@@ -262,6 +268,7 @@ export default async function ArticlesPage(props: {
                   <th className="py-2 px-3 font-medium text-right">Посет.</th>
                   <th className="py-2 px-3 font-medium text-right">Отказы</th>
                   <th className="py-2 px-3 font-medium text-right">Время</th>
+                  <th className="py-2 px-3 font-medium text-right">Запросы</th>
                   <th className="py-2 pl-3 font-medium text-right">Тренд</th>
                 </tr>
               </thead>
@@ -333,6 +340,25 @@ export default async function ArticlesPage(props: {
                       </td>
                       <td className="py-3 px-3 text-right tabular-nums text-muted">
                         {formatDuration(r.avgDuration)}
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap">
+                        {(() => {
+                          const s = kwByUrl.get(r.url);
+                          if (!s || !s.queries)
+                            return <span className="text-muted">—</span>;
+                          return (
+                            <Link
+                              href={`/queries?url=${encodeURIComponent(r.url)}`}
+                              className="hover:text-accent transition"
+                              title="Открыть позиции статьи"
+                            >
+                              <span className="font-medium">{s.queries}</span>
+                              {s.top10 > 0 && (
+                                <span className="text-positive text-xs"> · ТОП10: {s.top10}</span>
+                              )}
+                            </Link>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 pl-3 text-right">
                         <div className="flex justify-end">
