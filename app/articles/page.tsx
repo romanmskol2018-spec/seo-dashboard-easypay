@@ -44,7 +44,7 @@ function Sparkline({ points }: { points: number[] }) {
   );
 }
 
-type SortKey = "visits" | "modified" | "delta";
+type SortKey = "visits" | "leads" | "modified" | "delta";
 
 export default async function ArticlesPage(props: {
   searchParams: Promise<{
@@ -57,7 +57,8 @@ export default async function ArticlesPage(props: {
 }) {
   const { site, from, to, articles, sort } = await props.searchParams;
   const onlyArticles = articles === "1";
-  const sortKey: SortKey = sort === "modified" || sort === "delta" ? sort : "visits";
+  const sortKey: SortKey =
+    sort === "leads" || sort === "modified" || sort === "delta" ? sort : "visits";
   const user = await getSessionUser().catch(() => null);
 
   let data: Awaited<ReturnType<typeof getArticlesData>> | undefined;
@@ -169,8 +170,13 @@ export default async function ArticlesPage(props: {
               hint="к пред. периоду той же длины"
               icon="trending"
             />
+            <StatCard
+              label="Лиды из поиска"
+              value={formatNumber(data.totals.leads)}
+              hint={`обращения · конверсия ${formatPct(data.totals.conv)}`}
+              icon="target"
+            />
             <StatCard label="Посетители" value={formatNumber(data.totals.visitors)} icon="users" />
-            <StatCard label="Просмотры" value={formatNumber(data.totals.pageviews)} icon="eye" />
             <StatCard
               label={onlyArticles ? "Статей с трафиком" : "Страниц с трафиком"}
               value={formatNumber(data.totals.pages)}
@@ -205,6 +211,7 @@ export default async function ArticlesPage(props: {
                 {(
                   [
                     { k: "visits", label: "По визитам" },
+                    { k: "leads", label: "По лидам" },
                     { k: "modified", label: "По обновлению" },
                     { k: "delta", label: "По росту" },
                   ] as { k: SortKey; label: string }[]
@@ -247,6 +254,8 @@ export default async function ArticlesPage(props: {
                   <th className="py-2 pr-4 font-medium">Статья / страница</th>
                   <th className="py-2 px-3 font-medium text-right">Визиты</th>
                   <th className="py-2 px-3 font-medium text-right">Динамика</th>
+                  <th className="py-2 px-3 font-medium text-right">Лиды</th>
+                  <th className="py-2 px-3 font-medium text-right">Конв.</th>
                   <th className="py-2 px-3 font-medium text-right">Посет.</th>
                   <th className="py-2 px-3 font-medium text-right">Отказы</th>
                   <th className="py-2 px-3 font-medium text-right">Время</th>
@@ -308,6 +317,12 @@ export default async function ArticlesPage(props: {
                           {d.text}
                         </span>
                       </td>
+                      <td className="py-3 px-3 text-right tabular-nums font-medium">
+                        {r.leads ? formatNumber(r.leads) : "—"}
+                      </td>
+                      <td className="py-3 px-3 text-right tabular-nums text-muted">
+                        {r.leads ? formatPct(r.conv) : "—"}
+                      </td>
                       <td className="py-3 px-3 text-right tabular-nums text-muted">
                         {formatNumber(r.visitors)}
                       </td>
@@ -337,8 +352,8 @@ export default async function ArticlesPage(props: {
             )}
             <p className="text-muted text-xs mt-3">
               Источник — Яндекс.Метрика, страница входа (ym:s:startURL), только органика.
-              Динамика — к предыдущему периоду той же длины. Тренд — визиты по неделям периода.
-              Лиды по статьям появятся в Фазе 2.
+              Лиды — достижения целей-обращений (контакты, заявки, клики по телефону/мессенджеру/email)
+              на странице входа. Конв. — лиды/визиты. Динамика — к пред. периоду той же длины.
             </p>
           </section>
         </>

@@ -144,6 +144,7 @@ model ArticleStat {
   pageviews   Int      @default(0)
   bounceRate  Float    @default(0) // %
   avgDuration Int      @default(0) // секунды
+  leads       Int      @default(0) // достижения лид-целей на этой странице входа (обращения)
   updatedAt   DateTime @updatedAt
 
   @@unique([site, url, date])

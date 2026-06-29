@@ -1,7 +1,7 @@
 import { prisma } from "./prisma";
 
 // ---------- типы ----------
-export type SortKey = "visits" | "modified" | "delta";
+export type SortKey = "visits" | "leads" | "modified" | "delta";
 
 export type ArticleRow = {
   url: string;
@@ -11,6 +11,8 @@ export type ArticleRow = {
   title: string | null;
   image: string | null;
   modified: string | null; // YYYY-MM-DD
+  leads: number; // обращения с этой страницы входа (органика)
+  conv: number; // конверсия лиды/визиты, %
   visits: number;
   visitors: number;
   pageviews: number;
@@ -32,6 +34,8 @@ export type ArticlesData = {
     visits: number;
     visitors: number;
     pageviews: number;
+    leads: number;
+    conv: number;
     prevVisits: number;
     deltaPct: number | null;
     pages: number;
@@ -92,7 +96,7 @@ export async function getArticlesData(
       rangeTo: to || "",
       onlyArticles,
       sort,
-      totals: { visits: 0, visitors: 0, pageviews: 0, prevVisits: 0, deltaPct: null, pages: 0 },
+      totals: { visits: 0, visitors: 0, pageviews: 0, leads: 0, conv: 0, prevVisits: 0, deltaPct: null, pages: 0 },
       rows: [],
     };
   }
@@ -116,7 +120,7 @@ export async function getArticlesData(
     where: { ...whereSite, date: { gte: fromD, lte: toD } },
     select: {
       site: true, url: true, path: true, date: true,
-      visits: true, visitors: true, pageviews: true, bounceRate: true, avgDuration: true,
+      visits: true, visitors: true, pageviews: true, bounceRate: true, avgDuration: true, leads: true,
     },
   });
   const prev = await prisma.articleStat.findMany({
@@ -134,7 +138,7 @@ export async function getArticlesData(
 
   type Acc = {
     url: string; path: string; site: string;
-    visits: number; visitors: number; pageviews: number;
+    visits: number; visitors: number; pageviews: number; leads: number;
     bounceW: number; durW: number;
     trend: number[];
   };
@@ -142,12 +146,13 @@ export async function getArticlesData(
   for (const r of cur) {
     let a = byUrl.get(r.url);
     if (!a) {
-      a = { url: r.url, path: r.path, site: r.site, visits: 0, visitors: 0, pageviews: 0, bounceW: 0, durW: 0, trend: new Array(buckets.length).fill(0) };
+      a = { url: r.url, path: r.path, site: r.site, visits: 0, visitors: 0, pageviews: 0, leads: 0, bounceW: 0, durW: 0, trend: new Array(buckets.length).fill(0) };
       byUrl.set(r.url, a);
     }
     a.visits += r.visits;
     a.visitors += r.visitors;
     a.pageviews += r.pageviews;
+    a.leads += r.leads;
     a.bounceW += r.bounceRate * r.visits;
     a.durW += r.avgDuration * r.visits;
     const bi = bucketIndex.get(weekKey(r.date));
@@ -174,6 +179,8 @@ export async function getArticlesData(
       title: meta?.title ?? null,
       image: meta?.image ?? null,
       modified: meta?.modified ? iso(meta.modified) : null,
+      leads: a.leads,
+      conv: a.visits ? Math.round((a.leads / a.visits) * 1000) / 10 : 0,
       visits: a.visits,
       visitors: a.visitors,
       pageviews: a.pageviews,
@@ -187,7 +194,9 @@ export async function getArticlesData(
   if (onlyArticles) rows = rows.filter((r) => r.isArticle);
 
   const byVisits = (x: ArticleRow, y: ArticleRow) => y.visits - x.visits;
-  if (sort === "modified") {
+  if (sort === "leads") {
+    rows.sort((x, y) => y.leads - x.leads || byVisits(x, y));
+  } else if (sort === "modified") {
     // по дате обновления (свежие сверху); без даты — вниз, дальше по визитам
     rows.sort((x, y) => {
       if (x.modified && y.modified) return x.modified < y.modified ? 1 : x.modified > y.modified ? -1 : byVisits(x, y);
@@ -206,10 +215,11 @@ export async function getArticlesData(
       s.visits += r.visits;
       s.visitors += r.visitors;
       s.pageviews += r.pageviews;
+      s.leads += r.leads;
       s.prevVisits += r.prevVisits;
       return s;
     },
-    { visits: 0, visitors: 0, pageviews: 0, prevVisits: 0 }
+    { visits: 0, visitors: 0, pageviews: 0, leads: 0, prevVisits: 0 }
   );
 
   return {
@@ -219,7 +229,12 @@ export async function getArticlesData(
     rangeTo,
     onlyArticles,
     sort,
-    totals: { ...totals, deltaPct: deltaPct(totals.visits, totals.prevVisits), pages: rows.length },
+    totals: {
+      ...totals,
+      conv: totals.visits ? Math.round((totals.leads / totals.visits) * 1000) / 10 : 0,
+      deltaPct: deltaPct(totals.visits, totals.prevVisits),
+      pages: rows.length,
+    },
     rows,
   };
 }
