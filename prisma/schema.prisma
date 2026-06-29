@@ -170,6 +170,28 @@ model PlacementStat {
   @@index([ourSite, date])
 }
 
+// Позиция по запросу из Топвизора: запрос → позиция → relevant_url (URL статьи) → кластер.
+// Снимок последней позиции + предыдущей (для динамики), по поисковику. Нужно, чтобы
+// открыть статью и увидеть все её запросы/позиции, и смотреть позиции по кластерам.
+model KeywordPosition {
+  id           String   @id @default(cuid())
+  keywordId    String // ID ключа в Топвизоре
+  query        String // сам запрос
+  cluster      String? // группа Топвизора (кластер)
+  url          String? // relevant_url — страница, которая ранжируется
+  site         String // наш домен (из url)
+  searchEngine String // Яндекс | Google
+  position     Int? // текущая позиция (null = вне выдачи / «--»)
+  prevPosition Int? // предыдущая (для динамики)
+  checkedAt    DateTime @db.Date // дата последней проверки
+  updatedAt    DateTime @updatedAt
+
+  @@unique([keywordId, searchEngine])
+  @@index([url])
+  @@index([site, searchEngine])
+  @@index([cluster])
+}
+
 // Метаданные страницы (статьи): заголовок, превью-картинка, дата обновления.
 // Заполняется краулером enrich-articles (og:title/title, og:image, article:modified_time).
 // Нужно, чтобы в списке было видно НАЗВАНИЕ и КАРТИНКУ, а не только URL.

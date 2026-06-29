@@ -43,3 +43,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           YANDEX_METRIKA_TOKEN: ${{ secrets.YANDEX_METRIKA_TOKEN }}
+      - name: Импорт позиций по запросам (Топвизор → Neon)
+        run: npm run import:topvisor:keywords -- --write
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          TOPVISOR_USER_ID: ${{ secrets.TOPVISOR_USER_ID }}
+          TOPVISOR_API_KEY: ${{ secrets.TOPVISOR_API_KEY }}
+          TOPVISOR_PROJECT_ID: ${{ secrets.TOPVISOR_PROJECT_ID }}
