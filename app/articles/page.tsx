@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/components/StatCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TabNav } from "@/components/TabNav";
+import { InfoHint } from "@/components/InfoHint";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Icon } from "@/components/Icon";
 import { formatNumber, formatDelta, formatPct, formatDuration } from "@/lib/format";
@@ -181,9 +182,14 @@ export default async function ArticlesPage(props: {
               icon="trending"
             />
             <StatCard
-              label="Лиды из поиска"
+              label={
+                <span className="inline-flex items-center gap-1">
+                  Обращения
+                  <InfoHint text="Достижения целей-обращений в Яндекс.Метрике (отправка формы, контакты, клик по телефону/мессенджеру/e-mail) на странице входа — считаем как уникальные визиты. Это НЕ CRM-лиды из Bitrix (воронка на «Обзоре»)." />
+                </span>
+              }
               value={formatNumber(data.totals.leads)}
-              hint={`обращения · конверсия ${formatPct(data.totals.conv)}`}
+              hint={`из поиска · конверсия ${formatPct(data.totals.conv)}`}
               icon="target"
             />
             <StatCard label="Посетители" value={formatNumber(data.totals.visitors)} icon="users" />
@@ -221,7 +227,7 @@ export default async function ArticlesPage(props: {
                 {(
                   [
                     { k: "visits", label: "По визитам" },
-                    { k: "leads", label: "По лидам" },
+                    { k: "leads", label: "По обращениям" },
                     { k: "delta", label: "По росту" },
                   ] as { k: SortKey; label: string }[]
                 ).map((o) => (
@@ -263,7 +269,12 @@ export default async function ArticlesPage(props: {
                   <th className="py-2 pr-4 font-medium">Статья / страница</th>
                   <th className="py-2 px-3 font-medium text-right">Визиты</th>
                   <th className="py-2 px-3 font-medium text-right">Динамика</th>
-                  <th className="py-2 px-3 font-medium text-right">Лиды</th>
+                  <th className="py-2 px-3 font-medium text-right">
+                    <span className="inline-flex items-center gap-1">
+                      Обращения
+                      <InfoHint text="Уникальные визиты с целью-обращением в Метрике (форма/контакты/телефон/мессенджер) на странице входа. Не CRM-лиды." />
+                    </span>
+                  </th>
                   <th className="py-2 px-3 font-medium text-right">Конв.</th>
                   <th className="py-2 px-3 font-medium text-right">Посет.</th>
                   <th className="py-2 px-3 font-medium text-right">Отказы</th>
