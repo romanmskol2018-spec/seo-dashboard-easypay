@@ -1,0 +1,34 @@
+name: Metrika pages sync
+
+# Авто-синхронизация трафика ПО СТАТЬЯМ из Яндекс.Метрики (ym:s:startURL → ArticleStat).
+# Бесплатно на GitHub Actions. Секреты — в настройках репо:
+# Settings → Secrets and variables → Actions:
+#   DATABASE_URL, DIRECT_URL, YANDEX_METRIKA_TOKEN
+
+on:
+  schedule:
+    - cron: "37 5 * * *" # раз в сутки в 05:37 UTC (трафик по статьям меняется небыстро)
+  workflow_dispatch: {} # ручной запуск кнопкой Run workflow
+
+# Не запускать параллельно несколько синков
+concurrency:
+  group: metrika-pages-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --include=dev
+      - run: npx prisma generate
+      - name: Импорт трафика по статьям (запись в Neon)
+        run: npm run import:metrika:pages -- --weeks=8 --write
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          YANDEX_METRIKA_TOKEN: ${{ secrets.YANDEX_METRIKA_TOKEN }}

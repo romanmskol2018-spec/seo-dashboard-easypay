@@ -14,6 +14,7 @@ import { GroupSwitcher } from "@/components/GroupSwitcher";
 import { EngineSwitcher } from "@/components/EngineSwitcher";
 import { TrafficChart } from "@/components/TrafficChart";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { TabNav } from "@/components/TabNav";
 import { Icon } from "@/components/Icon";
 import type { Granularity } from "@/lib/data";
 import { VisibilityChart } from "@/components/VisibilityChart";
@@ -230,6 +231,10 @@ export default async function DashboardPage(props: {
           </Link>
         </div>
       </header>
+
+      <div className="mb-8">
+        <TabNav />
+      </div>
 
       {dbError && (
         <div className="bg-surface border border-border rounded-2xl p-8 text-center">

@@ -9,10 +9,12 @@ export function WeekRangePicker({
   weeks,
   from,
   to,
+  basePath = "/",
 }: {
   weeks: Week[];
   from: string;
   to: string;
+  basePath?: string;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -22,7 +24,7 @@ export function WeekRangePicker({
     p.set("from", nf);
     p.set("to", nt);
     p.delete("weeks");
-    router.push(`/?${p.toString()}`, { scroll: false });
+    router.push(`${basePath}?${p.toString()}`, { scroll: false });
   };
 
   if (weeks.length === 0) return null;
