@@ -16,7 +16,7 @@ export function StatCard({
 }) {
   const d = delta !== undefined ? formatDelta(delta) : null;
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5">
+    <div className="bg-surface border border-border rounded-2xl p-6">
       <div className="flex items-start justify-between gap-2">
         <div className="text-muted text-sm">{label}</div>
         {icon && (

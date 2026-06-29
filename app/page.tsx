@@ -70,7 +70,7 @@ function SectionTitle({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 mb-5 mt-12 first:mt-0">
+    <div className="flex flex-wrap items-center gap-3 mb-6 mt-16 first:mt-0">
       <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent/15 text-accent shrink-0">
         <Icon name={icon} className="w-5 h-5" />
       </span>
@@ -206,7 +206,7 @@ export default async function DashboardPage(props: {
   return (
     <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
       {/* Шапка */}
-      <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
+      <header className="flex flex-wrap items-center justify-between gap-5 mb-8">
         <div className="flex items-center gap-3">
           <span className="grid place-items-center w-10 h-10 rounded-xl bg-accent/15 text-accent shrink-0">
             <Icon name="chart" />
@@ -270,7 +270,7 @@ export default async function DashboardPage(props: {
           </div>
 
           {/* KPI-табло про деньги */}
-          <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-5">
             <StatCard
               label="Выручка"
               value={`${formatNumber(funnel.revenue)} ₽`}
@@ -301,7 +301,7 @@ export default async function DashboardPage(props: {
           </section>
 
           {/* Воронка + SEO-подворонка */}
-          <section className="grid lg:grid-cols-[2fr_1fr] gap-4 mb-2">
+          <section className="grid lg:grid-cols-[2fr_1fr] gap-5 mb-2">
             <FunnelChart data={funnel} />
             <SeoFunnel data={funnel} />
           </section>
@@ -406,9 +406,9 @@ export default async function DashboardPage(props: {
             title="Продажи карт"
             sub="реально оплаченные сделки, без разового импорта истории 25–28.05"
           />
-          <div className="grid lg:grid-cols-2 gap-4">
+          <div className="grid lg:grid-cols-2 gap-5">
             {sales.byWeek.length > 0 && <RevenueBars weeks={sales.byWeek} />}
-            <div className="bg-surface border border-border rounded-2xl p-5 overflow-x-auto">
+            <div className="bg-surface border border-border rounded-2xl p-6 overflow-x-auto">
               <h3 className="font-medium mb-1 text-sm">Тип карты по банку</h3>
               <p className="text-muted text-xs mb-4">где указан тип</p>
               {sales.byBank.length === 0 ? (
@@ -476,7 +476,7 @@ export default async function DashboardPage(props: {
           ) : (
             <>
               {/* Сводные карточки */}
-              <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <section className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
                 <StatCard
                   label="Визиты (всего)"
                   value={formatNumber(data.totals.visits)}
@@ -504,7 +504,7 @@ export default async function DashboardPage(props: {
               </section>
 
               {/* График трафика */}
-              <section className="bg-surface border border-border rounded-2xl p-5 mb-6">
+              <section className="bg-surface border border-border rounded-2xl p-6 mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-medium flex items-center gap-2">
                     <Icon name="trending" className="w-5 h-5 text-accent" />
@@ -530,7 +530,7 @@ export default async function DashboardPage(props: {
 
               {/* Таблица по сайтам */}
               {data.sites.length > 0 && (
-                <section className="bg-surface border border-border rounded-2xl p-5 mb-6 overflow-x-auto">
+                <section className="bg-surface border border-border rounded-2xl p-6 mb-6 overflow-x-auto">
                   <h3 className="font-medium mb-4 flex items-center gap-2">
                     <Icon name="globe" className="w-5 h-5 text-accent" />
                     Трафик по Метрике
@@ -614,7 +614,7 @@ export default async function DashboardPage(props: {
               )}
 
               {/* График видимости */}
-              <section className="bg-surface border border-border rounded-2xl p-5 mb-6">
+              <section className="bg-surface border border-border rounded-2xl p-6 mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-medium flex items-center gap-2">
                     <Icon name="search" className="w-5 h-5 text-accent" />
@@ -639,7 +639,7 @@ export default async function DashboardPage(props: {
 
               {/* Таблица по проектам */}
               {data.projects.length > 0 && (
-                <section className="bg-surface border border-border rounded-2xl p-5 overflow-x-auto">
+                <section className="bg-surface border border-border rounded-2xl p-6 overflow-x-auto">
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <h3 className="font-medium flex items-center gap-2">
                       <Icon name="target" className="w-5 h-5 text-accent" />
