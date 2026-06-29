@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { TabNav } from "@/components/TabNav";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Icon } from "@/components/Icon";
-import { formatNumber, formatDelta, formatPct, formatDuration, formatDateShort } from "@/lib/format";
+import { formatNumber, formatDelta, formatPct, formatDuration } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -212,7 +212,6 @@ export default async function ArticlesPage(props: {
                   [
                     { k: "visits", label: "По визитам" },
                     { k: "leads", label: "По лидам" },
-                    { k: "modified", label: "По обновлению" },
                     { k: "delta", label: "По росту" },
                   ] as { k: SortKey; label: string }[]
                 ).map((o) => (
@@ -259,7 +258,6 @@ export default async function ArticlesPage(props: {
                   <th className="py-2 px-3 font-medium text-right">Посет.</th>
                   <th className="py-2 px-3 font-medium text-right">Отказы</th>
                   <th className="py-2 px-3 font-medium text-right">Время</th>
-                  <th className="py-2 px-3 font-medium text-right">Обновл.</th>
                   <th className="py-2 pl-3 font-medium text-right">Тренд</th>
                 </tr>
               </thead>
@@ -331,9 +329,6 @@ export default async function ArticlesPage(props: {
                       </td>
                       <td className="py-3 px-3 text-right tabular-nums text-muted">
                         {formatDuration(r.avgDuration)}
-                      </td>
-                      <td className="py-3 px-3 text-right tabular-nums text-muted whitespace-nowrap">
-                        {r.modified ? formatDateShort(r.modified) : "—"}
                       </td>
                       <td className="py-3 pl-3 text-right">
                         <div className="flex justify-end">
