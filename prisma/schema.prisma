@@ -129,16 +129,16 @@ model VisibilityData {
   @@index([projectId, date, searchEngine])
 }
 
-// Недельный SEO-трафик по конкретной странице (статье) — разрез Метрики ym:s:startURL.
-// Одна строка = сайт × URL × неделя (та же сетка недель, что у LeadStat/воронки).
-// Источник — только органика; нужно, чтобы видеть какая статья приводит людей, а какая нет.
+// ДНЕВНОЙ SEO-трафик по конкретной странице (статье) — разрез Метрики ym:s:startURL × дата.
+// Одна строка = сайт × URL × день. Дневная гранулярность нужна, чтобы периоды
+// «этот месяц / прошлый месяц / год / свой диапазон» ложились точно на календарь.
+// Источник — ТОЛЬКО органика (SEO); видно, какая страница приводит людей, а какая нет.
 model ArticleStat {
   id          String   @id @default(cuid())
   site        String   // домен сайта (easypay.world и т.п.) — денормализовано для простоты
   url         String   // полный URL страницы входа
   path        String   // путь без домена/хвоста (для группировки и читаемости)
-  weekStart   DateTime @db.Date // понедельник недели
-  weekLabel   String           // "17–23.06"
+  date        DateTime @db.Date // день
   visits      Int      @default(0)
   visitors    Int      @default(0)
   pageviews   Int      @default(0)
@@ -146,7 +146,7 @@ model ArticleStat {
   avgDuration Int      @default(0) // секунды
   updatedAt   DateTime @updatedAt
 
-  @@unique([site, url, weekStart])
-  @@index([weekStart])
-  @@index([site, weekStart])
+  @@unique([site, url, date])
+  @@index([date])
+  @@index([site, date])
 }

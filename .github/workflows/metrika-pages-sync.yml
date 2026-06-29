@@ -27,7 +27,7 @@ jobs:
       - run: npm install --include=dev
       - run: npx prisma generate
       - name: Импорт трафика по статьям (запись в Neon)
-        run: npm run import:metrika:pages -- --weeks=8 --write
+        run: npm run import:metrika:pages -- --days=30 --write
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}

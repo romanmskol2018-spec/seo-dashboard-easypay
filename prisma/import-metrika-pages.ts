@@ -1,9 +1,10 @@
-// Импорт SEO-трафика ПО СТРАНИЦАМ (статьям) из Яндекс.Метрики.
-// Разрез ym:s:startURL (страница входа), только органика. Группируем по неделям
-// (та же сетка, что у лидов/воронки), пишем в ArticleStat: сайт × URL × неделя.
+// Импорт ДНЕВНОГО SEO-трафика ПО СТРАНИЦАМ (статьям) из Яндекс.Метрики.
+// Разрез ym:s:startURL × ym:s:date, ТОЛЬКО органика. Пишем в ArticleStat: сайт × URL × день.
+// Дневная гранулярность → периоды «месяц/год/свой диапазон» ложатся точно на календарь.
 //
-//   npm run import:metrika:pages                 # сухой прогон, 8 недель
-//   npm run import:metrika:pages -- --weeks=12 --write
+//   npm run import:metrika:pages                  # сухой прогон, 365 дней
+//   npm run import:metrika:pages -- --days=30 --write   # обновить последние 30 дней
+//   npm run import:metrika:pages -- --days=365 --write  # полный бэкафилл за год
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient({
@@ -11,28 +12,32 @@ const prisma = new PrismaClient({
 });
 const API = "https://api-metrika.yandex.net/stat/v1/data";
 
-// ---------- сетка недель (как в import-bitrix) ----------
-const ANCHOR = Date.UTC(2026, 4, 6); // понедельник
-const DAY = 86400000;
-function weekStartOf(d: Date): Date {
-  const idx = Math.floor((d.getTime() - ANCHOR) / (7 * DAY));
-  return new Date(ANCHOR + idx * 7 * DAY);
-}
-function pad(n: number) {
-  return String(n).padStart(2, "0");
-}
 function fmt(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-function weekLabel(start: Date): string {
-  const end = new Date(start.getTime() + 6 * DAY);
-  return `${pad(start.getUTCDate())}.${pad(start.getUTCMonth() + 1)}–${pad(end.getUTCDate())}.${pad(end.getUTCMonth() + 1)}`;
+
+// Окна по 90 дней от сегодня назад на `days` (Метрика не любит длинные 2D-запросы)
+function windows(days: number): { date1: string; date2: string }[] {
+  const today = new Date();
+  let end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  let remaining = days;
+  const res: { date1: string; date2: string }[] = [];
+  while (remaining > 0) {
+    const span = Math.min(90, remaining);
+    const start = new Date(end);
+    start.setUTCDate(end.getUTCDate() - (span - 1));
+    res.push({ date1: fmt(start), date2: fmt(end) });
+    end = new Date(start);
+    end.setUTCDate(start.getUTCDate() - 1);
+    remaining -= span;
+  }
+  return res;
 }
 
 function pathOf(url: string): string {
   try {
     const u = new URL(url);
-    return (u.pathname + (u.search ? "" : "")).replace(/\/+$/, "") || "/";
+    return u.pathname.replace(/\/+$/, "") || "/";
   } catch {
     return url.replace(/^https?:\/\/[^/]+/i, "").split("?")[0].replace(/\/+$/, "") || "/";
   }
@@ -40,6 +45,7 @@ function pathOf(url: string): string {
 
 type Row = {
   url: string;
+  date: string;
   visits: number;
   visitors: number;
   pageviews: number;
@@ -47,7 +53,7 @@ type Row = {
   avgDuration: number;
 };
 
-// Трафик по страницам входа за один интервал (одна неделя)
+// Трафик по страницам входа × дням за один интервал
 async function fetchPages(
   counter: string,
   date1: string,
@@ -57,20 +63,17 @@ async function fetchPages(
   const params = new URLSearchParams({
     ids: counter,
     metrics: "ym:s:visits,ym:s:users,ym:s:pageviews,ym:s:bounceRate,ym:s:avgVisitDuration",
-    dimensions: "ym:s:startURL",
+    dimensions: "ym:s:startURL,ym:s:date",
     filters: "ym:s:lastsignTrafficSource=='organic'",
     date1,
     date2,
     limit: "100000",
-    sort: "-ym:s:visits",
   });
   let res: Response | undefined;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      res = await fetch(`${API}?${params}`, {
-        headers: { Authorization: `OAuth ${token}` },
-      });
+      res = await fetch(`${API}?${params}`, { headers: { Authorization: `OAuth ${token}` } });
       break;
     } catch (e) {
       lastErr = e;
@@ -80,12 +83,24 @@ async function fetchPages(
   if (!res) throw new Error(`сеть: ${(lastErr as Error)?.message || "fetch failed"}`);
   if (!res.ok) {
     const text = await res.text();
+    // слишком тяжёлый запрос — делим интервал пополам рекурсивно
+    if (text.includes("too complicated") && date1 < date2) {
+      const a = new Date(date1).getTime();
+      const b = new Date(date2).getTime();
+      const mid = new Date((a + b) / 2);
+      const next = new Date(mid);
+      next.setUTCDate(mid.getUTCDate() + 1);
+      const left = await fetchPages(counter, date1, fmt(mid), token);
+      const right = await fetchPages(counter, fmt(next), date2, token);
+      return [...left, ...right];
+    }
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
   }
   const json = await res.json();
   return (json.data || []).map(
     (row: { dimensions: { name: string }[]; metrics: number[] }) => ({
       url: row.dimensions[0].name,
+      date: row.dimensions[1].name,
       visits: Math.round(row.metrics[0] || 0),
       visitors: Math.round(row.metrics[1] || 0),
       pageviews: Math.round(row.metrics[2] || 0),
@@ -95,28 +110,27 @@ async function fetchPages(
   );
 }
 
+function chunk<T>(arr: T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const write = args.includes("--write");
-  const weeksArg = args.find((a) => a.startsWith("--weeks="));
-  const nWeeks = weeksArg ? Number(weeksArg.split("=")[1]) : 8;
+  const daysArg = args.find((a) => a.startsWith("--days="));
+  const days = daysArg ? Number(daysArg.split("=")[1]) : 365;
   const token = process.env.YANDEX_METRIKA_TOKEN;
   if (!token) throw new Error("Не задан YANDEX_METRIKA_TOKEN в .env");
-
-  // окно: nWeeks недель назад от текущей недели
-  const now = new Date();
-  const curWeek = weekStartOf(
-    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  );
-  const weeks: Date[] = [];
-  for (let i = nWeeks - 1; i >= 0; i--) weeks.push(new Date(curWeek.getTime() - i * 7 * DAY));
 
   const sites = await prisma.site.findMany({
     where: { metrikaCounter: { not: null } },
     orderBy: { createdAt: "asc" },
   });
+  const wins = windows(days);
   console.log(
-    `📥 Метрика по страницам · ${nWeeks} нед · сайтов: ${sites.length} · режим: ${write ? "ЗАПИСЬ" : "СУХОЙ ПРОГОН"}`
+    `📥 Метрика по страницам (дни) · ${days} дн (${wins.length} окон) · сайтов: ${sites.length} · режим: ${write ? "ЗАПИСЬ" : "СУХОЙ ПРОГОН"}`
   );
 
   let written = 0;
@@ -124,35 +138,36 @@ async function main() {
     let siteRows = 0;
     let siteVisits = 0;
     try {
-      for (const ws of weeks) {
-        const we = new Date(ws.getTime() + 6 * DAY);
-        const rows = await fetchPages(site.metrikaCounter!, fmt(ws), fmt(we), token);
-        // отбрасываем мусор без визитов
-        const clean = rows.filter((r) => r.visits > 0 && r.url);
-        siteRows += clean.length;
-        siteVisits += clean.reduce((s, r) => s + r.visits, 0);
-        if (write) {
-          for (const r of clean) {
-            const data = {
-              path: pathOf(r.url),
-              weekLabel: weekLabel(ws),
-              visits: r.visits,
-              visitors: r.visitors,
-              pageviews: r.pageviews,
-              bounceRate: r.bounceRate,
-              avgDuration: r.avgDuration,
-            };
-            await prisma.articleStat.upsert({
-              where: { site_url_weekStart: { site: site.domain, url: r.url, weekStart: ws } },
-              create: { site: site.domain, url: r.url, weekStart: ws, ...data },
-              update: data,
-            });
-            written++;
+      for (const w of wins) {
+        const rows = (await fetchPages(site.metrikaCounter!, w.date1, w.date2, token)).filter(
+          (r) => r.visits > 0 && r.url
+        );
+        siteRows += rows.length;
+        siteVisits += rows.reduce((s, r) => s + r.visits, 0);
+        if (write && rows.length) {
+          // точечная замена этого окна по сайту (старое за пределами окна не трогаем)
+          await prisma.articleStat.deleteMany({
+            where: { site: site.domain, date: { gte: new Date(w.date1), lte: new Date(w.date2) } },
+          });
+          const data = rows.map((r) => ({
+            site: site.domain,
+            url: r.url,
+            path: pathOf(r.url),
+            date: new Date(r.date),
+            visits: r.visits,
+            visitors: r.visitors,
+            pageviews: r.pageviews,
+            bounceRate: r.bounceRate,
+            avgDuration: r.avgDuration,
+          }));
+          for (const part of chunk(data, 3000)) {
+            const c = await prisma.articleStat.createMany({ data: part, skipDuplicates: true });
+            written += c.count;
           }
         }
         await new Promise((r) => setTimeout(r, 250));
       }
-      console.log(`  ✓ ${site.name} (${site.domain}): ${siteRows} строк URL×нед · ${siteVisits} визитов`);
+      console.log(`  ✓ ${site.name} (${site.domain}): ${siteRows} строк URL×день · ${siteVisits} визитов`);
     } catch (e) {
       console.log(`  ✗ ${site.name}: ${(e as Error).message}`);
     }
@@ -161,11 +176,8 @@ async function main() {
   if (!write) {
     console.log("\n💡 Сухой прогон — в базу НЕ записано. Запись: npm run import:metrika:pages -- --write");
   } else {
-    // подчищаем недели до окна (старые данные за пределами окна)
-    const winFrom = weeks[0];
-    await prisma.articleStat.deleteMany({ where: { weekStart: { lt: winFrom } } });
-    console.log(`\n✓ ArticleStat: ${written} строк (окно с ${fmt(winFrom)})`);
-    console.log("🎉 Готово — трафик по статьям обновлён");
+    console.log(`\n✓ ArticleStat: ${written} строк записано`);
+    console.log("🎉 Готово — дневной трафик по статьям обновлён");
   }
 }
 
