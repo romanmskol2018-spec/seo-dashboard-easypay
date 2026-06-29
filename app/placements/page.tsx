@@ -1,14 +1,16 @@
 import Link from "next/link";
-import { getArticlesData } from "@/lib/articles";
+import { getPlacementsData } from "@/lib/placements";
 import { getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/components/StatCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TabNav } from "@/components/TabNav";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Icon } from "@/components/Icon";
-import { formatNumber, formatDelta, formatPct, formatDuration } from "@/lib/format";
+import { formatNumber, formatDelta, formatPct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+type SortKey = "visits" | "leads" | "delta";
 
 function formatRange(from: string, to: string): string {
   const f = new Date(from);
@@ -24,7 +26,6 @@ function formatRange(from: string, to: string): string {
   return `${dM(f, !sameYear)} – ${dM(t, true)}`;
 }
 
-// Спарклайн (SVG, серверный рендер) — тренд визитов по неделям периода.
 function Sparkline({ points }: { points: number[] }) {
   const w = 96;
   const h = 24;
@@ -44,51 +45,37 @@ function Sparkline({ points }: { points: number[] }) {
   );
 }
 
-type SortKey = "visits" | "leads" | "modified" | "delta";
-
-export default async function ArticlesPage(props: {
-  searchParams: Promise<{
-    site?: string;
-    from?: string;
-    to?: string;
-    articles?: string;
-    sort?: string;
-  }>;
+export default async function PlacementsPage(props: {
+  searchParams: Promise<{ site?: string; from?: string; to?: string; sort?: string }>;
 }) {
-  const { site, from, to, articles, sort } = await props.searchParams;
-  const onlyArticles = articles === "1";
-  const sortKey: SortKey =
-    sort === "leads" || sort === "modified" || sort === "delta" ? sort : "visits";
+  const { site, from, to, sort } = await props.searchParams;
+  const sortKey: SortKey = sort === "leads" || sort === "delta" ? sort : "visits";
   const user = await getSessionUser().catch(() => null);
 
-  let data: Awaited<ReturnType<typeof getArticlesData>> | undefined;
+  let data: Awaited<ReturnType<typeof getPlacementsData>> | undefined;
   let dbError = false;
   try {
-    data = await getArticlesData(site || "ALL", from || null, to || null, onlyArticles, sortKey);
+    data = await getPlacementsData(site || "ALL", from || null, to || null, sortKey);
   } catch {
     dbError = true;
   }
 
   const activeSite = site && data?.sites.includes(site) ? site : "ALL";
-  const buildHref = (over: { site?: string; articles?: boolean; sort?: SortKey }) => {
+  const buildHref = (over: { site?: string; sort?: SortKey }) => {
     const sp = new URLSearchParams();
     if (data?.rangeFrom) sp.set("from", data.rangeFrom);
     if (data?.rangeTo) sp.set("to", data.rangeTo);
     const s = over.site ?? activeSite;
     if (s !== "ALL") sp.set("site", s);
-    const a = over.articles ?? onlyArticles;
-    if (a) sp.set("articles", "1");
     const so = over.sort ?? sortKey;
     if (so !== "visits") sp.set("sort", so);
-    return `/articles?${sp.toString()}`;
+    return `/placements?${sp.toString()}`;
   };
 
-  const hasData = !!data && data.rows.length > 0;
   const hasBounds = !!data?.bounds;
 
   return (
     <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
-      {/* Шапка */}
       <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <span className="grid place-items-center w-10 h-10 rounded-xl bg-accent/15 text-accent shrink-0">
@@ -96,7 +83,7 @@ export default async function ArticlesPage(props: {
           </span>
           <div>
             <h1 className="text-xl font-semibold leading-tight">Дашборд EasyPay</h1>
-            <p className="text-muted text-sm">Статьи: какая приводит людей из поиска</p>
+            <p className="text-muted text-sm">Площадки: какой донор приводит людей и лиды</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -124,17 +111,17 @@ export default async function ArticlesPage(props: {
 
       {!dbError && !hasBounds && (
         <div className="bg-surface border border-border rounded-2xl p-8 text-center">
-          <div className="font-medium mb-1">Данные по статьям ещё не загружены</div>
+          <div className="font-medium mb-1">Данные по площадкам ещё не загружены</div>
           <p className="text-muted text-sm">
-            Запусти <code>npm run import:metrika:pages -- --days=365 --write</code> — соберёт
-            дневной трафик по страницам входа из Метрики (только органика).
+            Запусти <code>npm run import:referrals -- --days=365 --write</code> — соберёт
+            реферальный трафик по доменам-донорам из Метрики.
           </p>
         </div>
       )}
 
       {!dbError && hasBounds && data && (
         <>
-          {/* Период — одна понятная строка + селектор */}
+          {/* Период */}
           <div className="bg-surface border border-border rounded-2xl p-4 mb-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
@@ -142,12 +129,8 @@ export default async function ArticlesPage(props: {
                   <Icon name="sliders" className="w-5 h-5" />
                 </span>
                 <div>
-                  <div className="font-semibold leading-tight">
-                    {formatRange(data.rangeFrom, data.rangeTo)}
-                  </div>
-                  <div className="text-muted text-xs">
-                    только органический трафик (SEO) · из Яндекс.Метрики
-                  </div>
+                  <div className="font-semibold leading-tight">{formatRange(data.rangeFrom, data.rangeTo)}</div>
+                  <div className="text-muted text-xs">переходы с других сайтов (referral) · из Яндекс.Метрики</div>
                 </div>
               </div>
               <PeriodPicker
@@ -155,10 +138,9 @@ export default async function ArticlesPage(props: {
                 max={data.bounds!.max}
                 from={data.rangeFrom}
                 to={data.rangeTo}
-                basePath="/articles"
+                basePath="/placements"
                 params={{
                   ...(activeSite !== "ALL" ? { site: activeSite } : {}),
-                  ...(onlyArticles ? { articles: "1" } : {}),
                   ...(sortKey !== "visits" ? { sort: sortKey } : {}),
                 }}
               />
@@ -168,27 +150,23 @@ export default async function ArticlesPage(props: {
           {/* KPI */}
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
-              label="Визиты из поиска"
+              label="Визиты с площадок"
               value={formatNumber(data.totals.visits)}
               delta={data.totals.deltaPct}
               hint="к пред. периоду той же длины"
               icon="trending"
             />
             <StatCard
-              label="Лиды из поиска"
+              label="Лиды с площадок"
               value={formatNumber(data.totals.leads)}
               hint={`обращения · конверсия ${formatPct(data.totals.conv)}`}
               icon="target"
             />
             <StatCard label="Посетители" value={formatNumber(data.totals.visitors)} icon="users" />
-            <StatCard
-              label={onlyArticles ? "Статей с трафиком" : "Страниц с трафиком"}
-              value={formatNumber(data.totals.pages)}
-              icon="search"
-            />
+            <StatCard label="Площадок-доноров" value={formatNumber(data.totals.donors)} icon="link" />
           </section>
 
-          {/* Фильтры: сайт + только статьи */}
+          {/* Фильтры */}
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             {data.sites.length > 1 ? (
               <div className="flex flex-wrap gap-1.5">
@@ -202,66 +180,45 @@ export default async function ArticlesPage(props: {
                         : "bg-surface text-muted border-border hover:border-accent"
                     }`}
                   >
-                    {s === "ALL" ? "Все сайты" : s}
+                    {s === "ALL" ? "Все наши сайты" : s}
                   </Link>
                 ))}
               </div>
             ) : (
               <span />
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Сортировка */}
-              <div className="inline-flex bg-surface-2 border border-border rounded-lg p-1 gap-0.5">
-                {(
-                  [
-                    { k: "visits", label: "По визитам" },
-                    { k: "leads", label: "По лидам" },
-                    { k: "delta", label: "По росту" },
-                  ] as { k: SortKey; label: string }[]
-                ).map((o) => (
-                  <Link
-                    key={o.k}
-                    href={buildHref({ sort: o.k })}
-                    className={`px-2.5 py-1 text-xs rounded-md transition ${
-                      sortKey === o.k ? "bg-accent text-white" : "text-muted hover:text-foreground"
-                    }`}
-                  >
-                    {o.label}
-                  </Link>
-                ))}
-              </div>
-              {/* Только статьи */}
-              <Link
-                href={buildHref({ articles: !onlyArticles })}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition ${
-                  onlyArticles
-                    ? "bg-accent/15 text-accent border-accent"
-                    : "bg-surface text-muted border-border hover:border-accent"
-                }`}
-              >
-                {onlyArticles ? (
-                  <Icon name="check" className="w-4 h-4" />
-                ) : (
-                  <span className="w-3.5 h-3.5 rounded-sm border border-current opacity-60" />
-                )}
-                Только статьи
-              </Link>
+            <div className="inline-flex bg-surface-2 border border-border rounded-lg p-1 gap-0.5">
+              {(
+                [
+                  { k: "visits", label: "По визитам" },
+                  { k: "leads", label: "По лидам" },
+                  { k: "delta", label: "По росту" },
+                ] as { k: SortKey; label: string }[]
+              ).map((o) => (
+                <Link
+                  key={o.k}
+                  href={buildHref({ sort: o.k })}
+                  className={`px-2.5 py-1 text-xs rounded-md transition ${
+                    sortKey === o.k ? "bg-accent text-white" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {o.label}
+                </Link>
+              ))}
             </div>
           </div>
 
-          {/* Таблица */}
+          {/* Таблица доноров */}
           <section className="bg-surface border border-border rounded-2xl p-5 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-muted text-left border-b border-border">
-                  <th className="py-2 pr-4 font-medium">Статья / страница</th>
+                  <th className="py-2 pr-4 font-medium">Площадка (донор)</th>
                   <th className="py-2 px-3 font-medium text-right">Визиты</th>
                   <th className="py-2 px-3 font-medium text-right">Динамика</th>
                   <th className="py-2 px-3 font-medium text-right">Лиды</th>
                   <th className="py-2 px-3 font-medium text-right">Конв.</th>
                   <th className="py-2 px-3 font-medium text-right">Посет.</th>
-                  <th className="py-2 px-3 font-medium text-right">Отказы</th>
-                  <th className="py-2 px-3 font-medium text-right">Время</th>
                   <th className="py-2 pl-3 font-medium text-right">Тренд</th>
                 </tr>
               </thead>
@@ -269,53 +226,28 @@ export default async function ArticlesPage(props: {
                 {data.rows.map((r) => {
                   const d = formatDelta(r.deltaPct);
                   return (
-                    <tr key={r.url} className="border-b border-border/50 last:border-0 align-top">
-                      <td className="py-3 pr-4 max-w-[420px]">
+                    <tr key={r.donor} className="border-b border-border/50 last:border-0">
+                      <td className="py-3 pr-4">
                         <a
-                          href={r.url}
+                          href={`https://${r.donor}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="group flex items-start gap-3"
-                          title={r.url}
+                          className="flex items-center gap-2.5 hover:text-accent transition"
                         >
-                          {/* превью */}
-                          {r.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={r.image}
-                              alt=""
-                              loading="lazy"
-                              className="w-16 h-12 rounded-md object-cover border border-border shrink-0 bg-surface-2"
-                            />
-                          ) : (
-                            <span className="w-16 h-12 rounded-md border border-border shrink-0 bg-surface-2 grid place-items-center text-muted">
-                              <Icon name="globe" className="w-4 h-4" />
-                            </span>
-                          )}
-                          <span className="min-w-0">
-                            <span className="block font-medium leading-snug group-hover:text-accent transition line-clamp-2">
-                              {r.title || r.path}
-                            </span>
-                            <span className="block text-muted text-xs truncate">
-                              {data.sites.length > 1 ? `${r.site} · ` : ""}
-                              {r.path}
-                            </span>
-                          </span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`https://www.google.com/s2/favicons?domain=${r.donor}&sz=32`}
+                            alt=""
+                            width={20}
+                            height={20}
+                            className="rounded shrink-0 bg-surface-2"
+                          />
+                          <span className="font-medium">{r.donor}</span>
                         </a>
                       </td>
-                      <td className="py-3 px-3 text-right font-semibold tabular-nums">
-                        {formatNumber(r.visits)}
-                      </td>
+                      <td className="py-3 px-3 text-right font-semibold tabular-nums">{formatNumber(r.visits)}</td>
                       <td className="py-3 px-3 text-right">
-                        <span
-                          className={
-                            d.positive === null
-                              ? "text-muted"
-                              : d.positive
-                                ? "text-positive"
-                                : "text-negative"
-                          }
-                        >
+                        <span className={d.positive === null ? "text-muted" : d.positive ? "text-positive" : "text-negative"}>
                           {d.text}
                         </span>
                       </td>
@@ -325,15 +257,7 @@ export default async function ArticlesPage(props: {
                       <td className="py-3 px-3 text-right tabular-nums text-muted">
                         {r.leads ? formatPct(r.conv) : "—"}
                       </td>
-                      <td className="py-3 px-3 text-right tabular-nums text-muted">
-                        {formatNumber(r.visitors)}
-                      </td>
-                      <td className="py-3 px-3 text-right tabular-nums text-muted">
-                        {formatPct(r.bounceRate, 0)}
-                      </td>
-                      <td className="py-3 px-3 text-right tabular-nums text-muted">
-                        {formatDuration(r.avgDuration)}
-                      </td>
+                      <td className="py-3 px-3 text-right tabular-nums text-muted">{formatNumber(r.visitors)}</td>
                       <td className="py-3 pl-3 text-right">
                         <div className="flex justify-end">
                           <Sparkline points={r.trend} />
@@ -345,21 +269,19 @@ export default async function ArticlesPage(props: {
               </tbody>
             </table>
             {data.rows.length === 0 && (
-              <p className="text-muted text-sm text-center py-6">
-                За этот период данных нет. Поменяй период или выключи «только статьи».
-              </p>
+              <p className="text-muted text-sm text-center py-6">За этот период переходов с площадок нет.</p>
             )}
             <p className="text-muted text-xs mt-3">
-              Источник — Яндекс.Метрика, страница входа (ym:s:startURL), только органика.
-              Лиды — достижения целей-обращений (контакты, заявки, клики по телефону/мессенджеру/email)
-              на странице входа. Конв. — лиды/визиты. Динамика — к пред. периоду той же длины.
+              Источник — Яндекс.Метрика, переходы с сайтов (referral), реферер свёрнут в домен.
+              Лиды — достижения целей-обращений на реферальных визитах. Конв. — лиды/визиты.
+              Свои сайты из доноров исключены. Динамика — к пред. периоду той же длины.
             </p>
           </section>
         </>
       )}
 
       <footer className="text-center text-muted text-xs mt-12">
-        Дашборд EasyPay · трафик по статьям — Яндекс.Метрика (органика)
+        Дашборд EasyPay · площадки — Яндекс.Метрика (переходы с сайтов)
       </footer>
     </main>
   );

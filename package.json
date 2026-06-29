@@ -13,6 +13,7 @@
     "db:seed:real": "tsx prisma/seed-real.ts",
     "import:metrika": "tsx prisma/import-metrika.ts",
     "import:metrika:pages": "tsx prisma/import-metrika-pages.ts",
+    "import:referrals": "tsx prisma/import-metrika-referrals.ts",
     "enrich:articles": "tsx prisma/enrich-articles.ts",
     "import:topvisor": "tsx prisma/import-topvisor.ts",
     "import:crm": "tsx prisma/import-crm.ts",

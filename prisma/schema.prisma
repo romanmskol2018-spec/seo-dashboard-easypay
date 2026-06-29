@@ -152,6 +152,24 @@ model ArticleStat {
   @@index([site, date])
 }
 
+// ДНЕВНОЙ реферальный трафик по ПЛОЩАДКАМ-ДОНОРАМ (внешние сайты) — разрез Метрики
+// ym:s:referer (домен) × дата, источник = referral. Лиды — достижения лид-целей на
+// реферальных визитах. Одна строка = наш сайт × донор × день.
+model PlacementStat {
+  id        String   @id @default(cuid())
+  ourSite   String   // наш сайт, куда пришёл переход (easypay.world и т.п.)
+  donor     String   // домен-донор (klerk.ru, vc.ru…)
+  date      DateTime @db.Date
+  visits    Int      @default(0)
+  visitors  Int      @default(0)
+  leads     Int      @default(0) // обращения с реферальных визитов этого донора
+  updatedAt DateTime @updatedAt
+
+  @@unique([ourSite, donor, date])
+  @@index([date])
+  @@index([ourSite, date])
+}
+
 // Метаданные страницы (статьи): заголовок, превью-картинка, дата обновления.
 // Заполняется краулером enrich-articles (og:title/title, og:image, article:modified_time).
 // Нужно, чтобы в списке было видно НАЗВАНИЕ и КАРТИНКУ, а не только URL.
