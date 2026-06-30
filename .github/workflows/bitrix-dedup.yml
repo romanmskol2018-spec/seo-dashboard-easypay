@@ -1,0 +1,30 @@
+name: Bitrix dedup (Повтор)
+
+# Каждый час помечает в Bitrix дубли-повторы одного человека (mobile+name)
+# стадией «Повтор» (UC_6HZFO0). Старые уже помеченные пропускаются (идемпотентно),
+# ловит только новые. Офисные линии, разные люди на номере, CONVERTED/закрытые — не трогает.
+# Секрет: BITRIX_WEBHOOK_URL (в настройках репо).
+
+on:
+  schedule:
+    - cron: "20 * * * *" # каждый час в :20
+  workflow_dispatch: {} # ручной запуск кнопкой
+
+concurrency:
+  group: bitrix-dedup
+  cancel-in-progress: false
+
+jobs:
+  dedup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --include=dev
+      - name: Пометить дубли-повторы (Bitrix)
+        run: npx tsx scripts/bitrix-dedup-repeat.ts --write
+        env:
+          BITRIX_WEBHOOK_URL: ${{ secrets.BITRIX_WEBHOOK_URL }}
