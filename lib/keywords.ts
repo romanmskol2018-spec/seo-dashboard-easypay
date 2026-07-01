@@ -7,6 +7,7 @@ export type KeywordRow = {
   position: number | null;
   prevPosition: number | null;
   delta: number | null; // улучшение позиции (prev - cur): >0 = вверх
+  move: "in" | "out" | null; // впервые в выдаче / выпал из выдачи
 };
 
 export type KeywordsData = {
@@ -74,22 +75,29 @@ export async function getKeywordsData(opts: {
   const raw = await prisma.keywordPosition.findMany({
     where,
     select: { query: true, cluster: true, url: true, position: true, prevPosition: true },
-    take: 3000,
+    take: 10000,
   });
 
-  const rows: KeywordRow[] = raw.map((r) => ({
-    query: r.query,
-    cluster: r.cluster,
-    url: r.url,
-    position: r.position,
-    prevPosition: r.prevPosition,
-    delta: r.position !== null && r.prevPosition !== null ? r.prevPosition - r.position : null,
-  }));
+  const rows: KeywordRow[] = raw.map((r) => {
+    const enteredIdx = r.prevPosition === null && r.position !== null; // впервые в выдаче
+    const leftIdx = r.prevPosition !== null && r.position === null; // выпал из выдачи
+    return {
+      query: r.query,
+      cluster: r.cluster,
+      url: r.url,
+      position: r.position,
+      prevPosition: r.prevPosition,
+      delta: r.position !== null && r.prevPosition !== null ? r.prevPosition - r.position : null,
+      move: enteredIdx ? "in" : leftIdx ? "out" : null,
+    };
+  });
 
-  // сортировка: по позиции (лучшие сверху, вне выдачи — вниз) или по росту
+  // сортировка: по позиции (лучшие сверху, вне выдачи — вниз) или по росту.
+  // «По росту»: вошедшие в выдачу — вверх, выпавшие — вниз, остальное по delta.
   const posKey = (p: number | null) => (p === null ? 1e9 : p);
   if (opts.sort === "delta") {
-    rows.sort((a, b) => (b.delta ?? -1e9) - (a.delta ?? -1e9) || posKey(a.position) - posKey(b.position));
+    const rank = (r: KeywordRow) => (r.move === "in" ? 1e6 : r.move === "out" ? -1e6 : (r.delta ?? -1e9));
+    rows.sort((a, b) => rank(b) - rank(a) || posKey(a.position) - posKey(b.position));
   } else {
     rows.sort((a, b) => posKey(a.position) - posKey(b.position));
   }
