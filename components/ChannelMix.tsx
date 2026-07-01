@@ -24,6 +24,11 @@ export function ChannelMix({ weeks }: { weeks: LeadWeek[] }) {
     total: weeks.reduce((s, w) => s + (w[c.key] as number), 0),
   })).filter((c) => c.total > 0);
   const grand = totals.reduce((s, c) => s + c.total, 0) || 1;
+  // Явный диапазon дат блока: старт первой недели – конец последней
+  const rangeLabel =
+    weeks.length > 0
+      ? `${weeks[0].label.split("–")[0]} – ${weeks[weeks.length - 1].label.split("–")[1] ?? weeks[weeks.length - 1].label}`
+      : "";
 
   // SEO-сплит
   const g = weeks.reduce((s, w) => s + w.seoGoogle, 0);
@@ -37,7 +42,7 @@ export function ChannelMix({ weeks }: { weeks: LeadWeek[] }) {
       <div className="bg-surface border border-border rounded-2xl p-5">
         <h3 className="font-medium text-sm mb-1">Лиды по каналам</h3>
         <p className="text-muted text-xs mb-4">
-          состав источников по неделям (вал)
+          состав источников по неделям (вал){rangeLabel && ` · ${rangeLabel}`}
         </p>
 
         {/* Легенда */}
@@ -69,9 +74,9 @@ export function ChannelMix({ weeks }: { weeks: LeadWeek[] }) {
             return (
               <div
                 key={w.weekStart}
-                className="grid grid-cols-[64px_1fr_auto] items-center gap-3"
+                className="grid grid-cols-[86px_1fr_auto] items-center gap-3"
               >
-                <div className="text-muted text-xs truncate">{w.label}</div>
+                <div className="text-muted text-xs tabular-nums">{w.label}</div>
                 <div className="h-6 rounded-md overflow-hidden flex bg-surface-2">
                   {total === 0 ? null : (
                     CHANNELS.map((c) => {
@@ -97,6 +102,10 @@ export function ChannelMix({ weeks }: { weeks: LeadWeek[] }) {
             );
           })}
         </div>
+        <p className="text-muted text-[11px] mt-3">
+          «Прямые/неизв.» — прямые заходы, звонки, повторные обращения и лиды без
+          явной метки источника.
+        </p>
       </div>
 
       {/* SEO-сплит */}

@@ -7,7 +7,7 @@ export function InfoHint({ text, className = "" }: { text: string; className?: s
       <Icon name="info" className="w-3.5 h-3.5 text-muted cursor-help" />
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-60 z-20 hidden group-hover:block bg-surface-2 border border-border rounded-lg px-3 py-2 text-xs font-normal leading-snug text-foreground shadow-lg text-left normal-case"
+        className="pointer-events-none absolute top-full right-0 mt-1.5 w-56 z-30 hidden group-hover:block bg-surface-2 border border-border rounded-lg px-3 py-2 text-xs font-normal leading-snug text-foreground shadow-lg text-left normal-case"
       >
         {text}
       </span>
