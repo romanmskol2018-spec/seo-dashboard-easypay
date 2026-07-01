@@ -70,7 +70,7 @@ function SectionTitle({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 mb-6 mt-16 first:mt-0">
+    <div className="flex flex-wrap items-center gap-3 mb-6 mt-12">
       <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent/15 text-accent shrink-0">
         <Icon name={icon} className="w-5 h-5" />
       </span>
@@ -252,7 +252,7 @@ export default async function DashboardPage(props: {
           </div>
 
           {/* KPI-табло про деньги */}
-          <section className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-5">
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
             <StatCard
               label="Выручка"
               value={`${formatNumber(funnel.revenue)} ₽`}
@@ -283,7 +283,7 @@ export default async function DashboardPage(props: {
           </section>
 
           {/* Воронка + SEO-подворонка */}
-          <section className="grid lg:grid-cols-[2fr_1fr] gap-5 mb-2">
+          <section className="grid lg:grid-cols-[2fr_1fr] gap-5">
             <FunnelChart data={funnel} />
             <SeoFunnel data={funnel} />
           </section>
