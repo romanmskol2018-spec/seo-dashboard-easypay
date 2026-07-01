@@ -65,12 +65,6 @@ function mobiles(text: string): string[] {
   }
   return [...out];
 }
-function toNum(s: string): number {
-  const m = /-?\d[\d\s]*([.,]\d+)?/.exec((s || "").replace(/ /g, " "));
-  if (!m) return 0;
-  const n = parseFloat(m[0].replace(/\s/g, "").replace(",", "."));
-  return isNaN(n) ? 0 : n;
-}
 
 // ---------- источник (адаптировано под доступные поля Bitrix) ----------
 const SRC_KEYS = [
@@ -168,7 +162,9 @@ async function main() {
   const args = process.argv.slice(2);
   const write = args.includes("--write");
   const weeksArg = args.find((a) => a.startsWith("--weeks="));
-  const nWeeks = weeksArg ? Number(weeksArg.split("=")[1]) : 8;
+  // Дефолт 10 недель: продажи карт (стадия UC_CARDSALE) идут с 1 мая, окно должно
+  // покрывать весь май, иначе часть реальных продаж выпадает из дашборда.
+  const nWeeks = weeksArg ? Number(weeksArg.split("=")[1]) : 10;
 
   // окно: nWeeks недель назад от текущей недели
   const now = new Date();
@@ -232,45 +228,14 @@ async function main() {
   // привязка лид↔сделка (для кач-лидов): по LEAD_ID и metrika со ВСЕХ сделок
   const dealMetrikas = new Set<string>();
   const dealLeadIds = new Set<string>();
-  type Sale = {
-    dealId: string;
-    date: Date;
-    amount: number;
-    bank: string | null;
-    cardType: string | null;
-    proj: string;
-  };
-  const sales: Sale[] = [];
   for (const r of rawDeals) {
     const met = String(r[DF.metrika] || "").trim();
     const leadId = String(r.LEAD_ID || "").trim();
     if (met) dealMetrikas.add(met);
     if (leadId && leadId !== "0") dealLeadIds.add(leadId);
   }
-
-  // ---- продажи = лиды в стадии «Реальные продажи карт» (UC_CARDSALE) ----
-  // Правда по продажам карт: реестр разложен по лидам этой стадии, сумма — в UF_CRM_CARD_SUM.
-  // Тянем ВСЕ такие лиды (без оконного фильтра), чтобы не потерять начало мая.
-  console.log("  · тяну реальные продажи карт (стадия UC_CARDSALE)…");
-  const rawCardLeads = await listAll("crm.lead.list", {
-    select: ["ID", "DATE_CREATE", LF.project, LF.cardSum],
-    filter: { STATUS_ID: "UC_CARDSALE" },
-  });
-  for (const r of rawCardLeads) {
-    const d = parseDate(String(r.DATE_CREATE));
-    if (!d) continue;
-    const amount = toNum(String(r[LF.cardSum] || ""));
-    if (amount <= 0) continue;
-    sales.push({
-      dealId: "L" + String(r.ID),
-      date: d,
-      amount: Math.round(amount),
-      bank: null,
-      cardType: null,
-      proj: normProj(String(r[LF.project] || ""), projLead),
-    });
-  }
-  console.log(`    продаж карт (UC_CARDSALE): ${sales.length}`);
+  // ПРОДАЖИ КАРТ (CardSale) сюда НЕ пишем — их наполняет отдельный импортёр
+  // реестра prisma/import-cards-registry.ts (полная правда: реестр карт, реальные даты и суммы).
 
   // ---- агрегация лидов по неделям (дедуп union-find внутри недели) ----
   const byWeek = new Map<string, Lead[]>();
@@ -346,9 +311,8 @@ async function main() {
     totVal += all.val; totQual += q;
     console.log(`  ${weekLabel(new Date(k)).padEnd(13)} ${String(all.val).padStart(4)} ${String(q).padStart(5)} ${String(all.seo).padStart(5)} ${String(all.direct).padStart(4)} ${String(all.recom).padStart(5)}`);
   }
-  const revenue = sales.reduce((s, x) => s + x.amount, 0);
   console.log(`\n  ИТОГО лиды(вал): ${totVal} · кач-лиды: ${totQual}`);
-  console.log(`  Продажи карт (UC_CARDSALE): ${sales.length} · выручка: ${revenue.toLocaleString("ru")} ₽ · ср.чек: ${sales.length ? Math.round(revenue / sales.length).toLocaleString("ru") : 0} ₽`);
+  console.log(`  (Продажи карт наполняет import-cards-registry.ts — здесь не считаются)`);
 
   if (!write) {
     console.log("\n💡 Сухой прогон — в базу НЕ записано. Для записи: npm run import:bitrix -- --write");
@@ -387,23 +351,8 @@ async function main() {
   // убираем устаревшие недели до окна (остатки прежнего .xls-импорта)
   const winFrom = new Date(weeksSorted[0]);
   await prisma.leadStat.deleteMany({ where: { weekStart: { lt: winFrom } } });
-  // продажи: полностью пересобираем «живые» продажи из стадии UC_CARDSALE
-  // (исторический импорт isImport=true не трогаем)
-  await prisma.cardSale.deleteMany({ where: { isImport: false } });
-  await prisma.cardSale.createMany({
-    data: sales.map((s) => ({
-      dealId: s.dealId,
-      date: s.date,
-      amount: s.amount,
-      cardType: s.cardType,
-      bank: s.bank,
-      project: s.proj,
-      source: null,
-      isImport: false,
-    })),
-    skipDuplicates: true,
-  });
-  console.log(`  ✓ LeadStat: ${n} строк · CardSale: ${sales.length} продаж (окно с ${fmt(winFrom)})`);
+  // CardSale здесь не трогаем — продажи наполняет import-cards-registry.ts
+  console.log(`  ✓ LeadStat: ${n} строк (окно с ${fmt(winFrom)}) · CardSale — см. import-cards-registry.ts`);
   console.log("🎉 Готово — данные обновлены из Bitrix");
 }
 
