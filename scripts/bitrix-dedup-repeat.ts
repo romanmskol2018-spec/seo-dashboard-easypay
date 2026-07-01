@@ -6,7 +6,7 @@
 const BASE=(process.env.BITRIX_WEBHOOK_URL||"").trim().replace(/\/+$/,"");
 const WRITE=process.argv.includes("--write");
 const REPEAT="UC_6HZFO0";
-const KEEP=new Set(["CONVERTED","1","2","3","4","5","6","11","JUNK","UC_SBSH6Z","UC_6HZFO0"]);
+const KEEP=new Set(["CONVERTED","1","2","3","4","5","6","11","JUNK","UC_SBSH6Z","UC_6HZFO0","UC_CARDSALE"]);
 async function api(m:string,p:any={}){const r=await fetch(`${BASE}/${m}.json`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});return (await r.json());}
 async function batch(c:Record<string,string>){const r=await fetch(`${BASE}/batch.json`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({halt:0,cmd:c})});return (await r.json()).result?.result||{};}
 function mob(arr:any){for(const p of arr||[]){let d=String(p.VALUE||"").replace(/\D/g,"");if(d.length===11&&(d[0]==="7"||d[0]==="8"))d=d.slice(1);if(d.length===10&&d[0]==="9")return d;}return null;}
