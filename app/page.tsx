@@ -292,9 +292,9 @@ export default async function DashboardPage(props: {
               icon="spark"
             />
             <StatCard
-              label="Кач-лиды"
-              value={formatNumber(funnel.qual)}
-              delta={funnel.qualDeltaPct}
+              label="Лиды"
+              value={formatNumber(funnel.leads)}
+              delta={funnel.leadsDeltaPct}
               hint="к пред. периоду"
               icon="users"
             />
