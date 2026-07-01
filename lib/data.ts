@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { formatBucketLabel, formatDateShort } from "@/lib/format";
+import { formatDateShort } from "@/lib/format";
 
 export type SiteSummary = {
   id: string;
@@ -187,6 +187,22 @@ function median(nums: number[]): number {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 }
 
+// Недельная сетка ДЛЯ ПРОДАЖ — та же, что у лидов (import-bitrix): якорь 2026-05-06,
+// недели ср–вт. Иначе бары выручки (по понедельникам) не совпадали бы с неделями
+// воронки/таблицы лидов (баг #1 аудита).
+const LEAD_WEEK_ANCHOR = Date.UTC(2026, 4, 6); // 2026-05-06
+const WEEK_MS = 7 * 86400000;
+function leadWeekStart(d: Date): string {
+  const idx = Math.floor((d.getTime() - LEAD_WEEK_ANCHOR) / WEEK_MS);
+  return fmt(new Date(LEAD_WEEK_ANCHOR + idx * WEEK_MS));
+}
+function weekRangeLabel(iso: string): string {
+  const s = new Date(iso);
+  const e = new Date(s.getTime() + 6 * 86400000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(s.getUTCDate())}.${p(s.getUTCMonth() + 1)}–${p(e.getUTCDate())}.${p(e.getUTCMonth() + 1)}`;
+}
+
 // Все доступные недели (для пикера диапазона). Берём по агрегату "ALL".
 export async function getAvailableWeeks(): Promise<
   { weekStart: string; label: string }[]
@@ -270,7 +286,7 @@ export async function getSalesData(
   const revenue = sales.reduce((s, x) => s + x.amount, 0);
   const wk = new Map<string, { cards: number; revenue: number }>();
   for (const s of sales) {
-    const key = bucketKey(fmt(s.date), "week");
+    const key = leadWeekStart(s.date); // сетка недель как у лидов (ANCHOR 6 мая)
     if (!wk.has(key)) wk.set(key, { cards: 0, revenue: 0 });
     const b = wk.get(key)!;
     b.cards++;
@@ -278,7 +294,7 @@ export async function getSalesData(
   }
   const byWeek = Array.from(wk.entries())
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([key, v]) => ({ label: formatBucketLabel(key, "week"), ...v }));
+    .map(([key, v]) => ({ label: weekRangeLabel(key), ...v }));
   const banks = new Map<string, number>();
   let noBank = 0;
   for (const s of sales) {
