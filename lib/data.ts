@@ -196,6 +196,11 @@ function leadWeekStart(d: Date): string {
   const idx = Math.floor((d.getTime() - LEAD_WEEK_ANCHOR) / WEEK_MS);
   return fmt(new Date(LEAD_WEEK_ANCHOR + idx * WEEK_MS));
 }
+// День (YYYY-MM-DD) → начало недели лид-сетки. Для маппинга глобального диапазона
+// дат в недельные границы воронки/лидов.
+export function weekOf(dayIso: string): string {
+  return leadWeekStart(new Date(dayIso));
+}
 function weekRangeLabel(iso: string): string {
   const s = new Date(iso);
   const e = new Date(s.getTime() + 6 * 86400000);
@@ -466,17 +471,17 @@ export async function getFunnelData(
 }
 
 export async function getDashboardData(
-  days: number,
+  fromIso: string,
+  toIso: string,
   group: Granularity = "day",
   engine: string = "Яндекс"
 ): Promise<DashboardData> {
-  const today = startOfDayUTC(new Date());
-  const rangeStart = new Date(today);
-  rangeStart.setUTCDate(today.getUTCDate() - (days - 1));
-  const prevStart = new Date(rangeStart);
-  prevStart.setUTCDate(rangeStart.getUTCDate() - days);
-  const prevEnd = new Date(rangeStart);
-  prevEnd.setUTCDate(rangeStart.getUTCDate() - 1);
+  const DAY_MS = 86400000;
+  const rangeStart = startOfDayUTC(new Date(fromIso));
+  const rangeEnd = startOfDayUTC(new Date(toIso));
+  const days = Math.max(1, Math.round((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS) + 1);
+  const prevEnd = new Date(rangeStart.getTime() - DAY_MS);
+  const prevStart = new Date(prevEnd.getTime() - (days - 1) * DAY_MS);
 
   const [sites, projects, traffic, visibility] = await Promise.all([
     prisma.site.findMany({ orderBy: { createdAt: "asc" } }),
@@ -494,7 +499,7 @@ export async function getDashboardData(
   // ---- Трафик по сайтам ----
   const siteSummaries: SiteSummary[] = sites.map((site) => {
     const curr = traffic.filter(
-      (t) => t.siteId === site.id && t.date >= rangeStart
+      (t) => t.siteId === site.id && t.date >= rangeStart && t.date <= rangeEnd
     );
     const prev = traffic.filter(
       (t) => t.siteId === site.id && t.date >= prevStart && t.date < rangeStart
@@ -524,7 +529,7 @@ export async function getDashboardData(
   // ---- Видимость по проектам ----
   const projectSummaries: ProjectSummary[] = projects.map((project) => {
     const curr = visibility
-      .filter((v) => v.projectId === project.id && v.date >= rangeStart)
+      .filter((v) => v.projectId === project.id && v.date >= rangeStart && v.date <= rangeEnd)
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     const prev = visibility
       .filter(
@@ -558,7 +563,7 @@ export async function getDashboardData(
   // ---- Тренд трафика (по дням, в разрезе сайтов + total) ----
   const trafficByDate = new Map<string, TrendRow>();
   for (const t of traffic) {
-    if (t.date < rangeStart) continue;
+    if (t.date < rangeStart || t.date > rangeEnd) continue;
     const key = fmt(t.date);
     if (!trafficByDate.has(key)) trafficByDate.set(key, { date: key, total: 0 });
     const row = trafficByDate.get(key)!;
@@ -573,7 +578,7 @@ export async function getDashboardData(
   // ---- Тренд видимости (по дням, в разрезе проектов) ----
   const visByDate = new Map<string, TrendRow>();
   for (const v of visibility) {
-    if (v.date < rangeStart) continue;
+    if (v.date < rangeStart || v.date > rangeEnd) continue;
     const key = fmt(v.date);
     if (!visByDate.has(key)) visByDate.set(key, { date: key });
     const row = visByDate.get(key)!;
@@ -610,7 +615,7 @@ export async function getDashboardData(
     visibilityTrend,
     period: {
       currStart: fmt(rangeStart),
-      currEnd: fmt(today),
+      currEnd: fmt(rangeEnd),
       prevStart: fmt(prevStart),
       prevEnd: fmt(prevEnd),
     },

@@ -5,11 +5,11 @@ import {
   getSalesData,
   getFunnelData,
   getAvailableWeeks,
+  weekOf,
 } from "@/lib/data";
 import type { LeadsData, SalesData, FunnelData } from "@/lib/data";
 import { getSessionUser } from "@/lib/auth";
 import { StatCard } from "@/components/StatCard";
-import { PeriodSwitcher } from "@/components/PeriodSwitcher";
 import { GroupSwitcher } from "@/components/GroupSwitcher";
 import { EngineSwitcher } from "@/components/EngineSwitcher";
 import { TrafficChart } from "@/components/TrafficChart";
@@ -21,7 +21,7 @@ import { VisibilityChart } from "@/components/VisibilityChart";
 import { FunnelChart } from "@/components/FunnelChart";
 import { ChannelMix } from "@/components/ChannelMix";
 import { RevenueBars } from "@/components/RevenueBars";
-import { WeekRangePicker } from "@/components/WeekRangePicker";
+import { GlobalDatePicker } from "@/components/GlobalDatePicker";
 import { SeoFunnel } from "@/components/SeoFunnel";
 import {
   formatNumber,
@@ -102,20 +102,10 @@ export default async function DashboardPage(props: {
     to?: string;
   }>;
 }) {
-  const { period, group, engine, proj, weeks, from, to } =
-    await props.searchParams;
+  const { group, engine, proj, from, to } = await props.searchParams;
   const project =
     proj && ["ALL", ...LEAD_PROJECTS].includes(proj) ? proj : "ALL";
-  // Старый параметр weeks ("4"|"8"|"all") поддерживаем для обратной совместимости
-  const weeksParam = ["4", "8", "all"].includes(String(weeks))
-    ? (weeks as string)
-    : null;
-  const days = [7, 30, 90, 180, 365].includes(Number(period))
-    ? Number(period)
-    : 30;
-  const granularity: Granularity = ["day", "week", "month"].includes(
-    String(group)
-  )
+  const granularity: Granularity = ["day", "week", "month"].includes(String(group))
     ? (group as Granularity)
     : "day";
   const searchEngine = ["Яндекс", "Google"].includes(String(engine))
@@ -124,71 +114,71 @@ export default async function DashboardPage(props: {
 
   const user = await getSessionUser().catch(() => null);
 
+  // ---- ЕДИНЫЙ период дат на весь дашборд (from/to, день) ----
+  const DAY = 86400000;
+  const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+  const now = new Date();
+  const today = isoDay(
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  );
+
+  let availableWeeks: { weekStart: string; label: string }[] = [];
+  try {
+    availableWeeks = await getAvailableWeeks();
+  } catch {}
+  const starts = availableWeeks.map((w) => w.weekStart);
+  const dataMin = starts[0] || isoDay(new Date(Date.now() - 180 * DAY));
+
+  const validDay = (s?: string) =>
+    s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  let rangeTo = validDay(to) || today;
+  if (rangeTo > today) rangeTo = today;
+  if (rangeTo < dataMin) rangeTo = dataMin;
+  let rangeFrom =
+    validDay(from) || isoDay(new Date(new Date(rangeTo).getTime() - 89 * DAY));
+  if (rangeFrom < dataMin) rangeFrom = dataMin;
+  if (rangeFrom > rangeTo) rangeFrom = rangeTo;
+
   let data;
   let dbError = false;
   try {
-    data = await getDashboardData(days, granularity, searchEngine);
+    data = await getDashboardData(rangeFrom, rangeTo, granularity, searchEngine);
   } catch {
     dbError = true;
   }
 
-  // Бизнес-данные из CRM (отдельно: таблицы могут быть ещё не созданы)
+  // Бизнес-данные (недельные): маппим дневной диапазон в недели лид-сетки
   let leads: LeadsData | null = null;
   let sales: SalesData | null = null;
   let funnel: FunnelData | null = null;
-  let availableWeeks: { weekStart: string; label: string }[] = [];
-  let rangeFrom: string | null = null;
-  let rangeTo: string | null = null;
-  try {
-    availableWeeks = await getAvailableWeeks();
-    const starts = availableWeeks.map((w) => w.weekStart);
-    // Резолвим диапазон: from/to из URL → иначе старый weeks → иначе всё
-    rangeFrom = from && starts.includes(from) ? from : null;
-    rangeTo = to && starts.includes(to) ? to : null;
-    if (!rangeFrom && !rangeTo && weeksParam && starts.length) {
-      if (weeksParam === "all") {
-        rangeFrom = starts[0];
-        rangeTo = starts[starts.length - 1];
-      } else {
-        const n = Number(weeksParam);
-        rangeFrom = starts[Math.max(0, starts.length - n)];
-        rangeTo = starts[starts.length - 1];
-      }
+  if (starts.length) {
+    const clampWeek = (w: string) =>
+      w < starts[0]
+        ? starts[0]
+        : w > starts[starts.length - 1]
+          ? starts[starts.length - 1]
+          : w;
+    const weekFrom = clampWeek(weekOf(rangeFrom));
+    const weekTo = clampWeek(weekOf(rangeTo));
+    try {
+      funnel = await getFunnelData(weekFrom, weekTo);
+      [leads, sales] = await Promise.all([
+        getLeadsData(project, weekFrom, weekTo),
+        getSalesData(funnel.windowFrom || undefined, funnel.windowTo || undefined),
+      ]);
+    } catch {
+      leads = null;
+      sales = null;
+      funnel = null;
     }
-    if (!rangeFrom) rangeFrom = starts[0] ?? null;
-    if (!rangeTo) rangeTo = starts[starts.length - 1] ?? null;
-    if (rangeFrom && rangeTo && rangeFrom > rangeTo) rangeFrom = rangeTo;
-
-    funnel = await getFunnelData(rangeFrom, rangeTo);
-    [leads, sales] = await Promise.all([
-      getLeadsData(project, rangeFrom, rangeTo),
-      getSalesData(
-        funnel.windowFrom || undefined,
-        funnel.windowTo || undefined
-      ),
-    ]);
-  } catch {
-    leads = null;
-    sales = null;
-    funnel = null;
   }
 
-  // Ссылка на тот же дашборд со сменой проекта (период/группировка/движок/окно сохраняются)
-  const projHref = (p: string) => {
-    const sp = new URLSearchParams();
-    if (period) sp.set("period", String(period));
-    if (group) sp.set("group", String(group));
-    if (engine) sp.set("engine", String(engine));
-    if (rangeFrom) sp.set("from", rangeFrom);
-    if (rangeTo) sp.set("to", rangeTo);
-    sp.set("proj", p);
-    return `/?${sp.toString()}`;
-  };
-
-  // Суффикс для SEO-переключателей, чтобы они сохраняли окно воронки и проект
+  // Ссылки сохраняют глобальный период (from/to) + движок/группировку/проект
+  const projHref = (p: string) =>
+    `/?from=${rangeFrom}&to=${rangeTo}&group=${granularity}&engine=${encodeURIComponent(searchEngine)}` +
+    (p !== "ALL" ? `&proj=${encodeURIComponent(p)}` : "");
   const seoSuffix =
-    (rangeFrom ? `&from=${rangeFrom}` : "") +
-    (rangeTo ? `&to=${rangeTo}` : "") +
+    `&from=${rangeFrom}&to=${rangeTo}` +
     (project !== "ALL" ? `&proj=${encodeURIComponent(project)}` : "");
 
   // Подписи периодов для таблицы трафика (было → стало)
@@ -232,8 +222,9 @@ export default async function DashboardPage(props: {
         </div>
       </header>
 
-      <div className="mb-8">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
         <TabNav />
+        <GlobalDatePicker from={rangeFrom} to={rangeTo} min={dataMin} max={today} />
       </div>
 
       {dbError && (
@@ -249,23 +240,14 @@ export default async function DashboardPage(props: {
       {/* ===================== БИЗНЕС: ВОРОНКА И ДЕНЬГИ ===================== */}
       {hasBusiness && funnel && (
         <>
-          {/* Гибкий выбор периода по неделям (воронка/лиды/продажи) */}
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-            <div className="flex items-center gap-2 text-sm">
-              <Icon name="sliders" className="w-4 h-4 text-muted" />
-              <span className="font-medium">Воронка и продажи</span>
-              {funnel.rangeFrom && (
-                <span className="text-muted">
-                  · {funnel.weeks} нед · {funnel.rangeFrom} – {funnel.rangeTo}
-                </span>
-              )}
-            </div>
-            {rangeFrom && rangeTo && (
-              <WeekRangePicker
-                weeks={availableWeeks}
-                from={rangeFrom}
-                to={rangeTo}
-              />
+          {/* Период задаётся глобально сверху; тут — какие недели покрыты воронкой */}
+          <div className="flex flex-wrap items-center gap-2 text-sm mb-6">
+            <Icon name="sliders" className="w-4 h-4 text-muted" />
+            <span className="font-medium">Воронка и продажи</span>
+            {funnel.rangeFrom && (
+              <span className="text-muted">
+                · {funnel.weeks} нед · {funnel.rangeFrom} – {funnel.rangeTo}
+              </span>
             )}
           </div>
 
@@ -452,16 +434,6 @@ export default async function DashboardPage(props: {
             icon="search"
             title="SEO: трафик и позиции"
             sub={`Метрика и Топвизор · ${currRange}`}
-            action={
-              hasSeo ? (
-                <PeriodSwitcher
-                  current={days}
-                  group={granularity}
-                  engine={searchEngine}
-                  suffix={seoSuffix}
-                />
-              ) : undefined
-            }
           />
 
           {!hasSeo ? (
@@ -512,7 +484,6 @@ export default async function DashboardPage(props: {
                   </h3>
                   <GroupSwitcher
                     current={granularity}
-                    period={days}
                     engine={searchEngine}
                     suffix={seoSuffix}
                   />
@@ -622,7 +593,6 @@ export default async function DashboardPage(props: {
                   </h3>
                   <EngineSwitcher
                     current={searchEngine}
-                    period={days}
                     group={granularity}
                     suffix={seoSuffix}
                   />
@@ -647,8 +617,8 @@ export default async function DashboardPage(props: {
                     </h3>
                     <EngineSwitcher
                       current={searchEngine}
-                      period={days}
                       group={granularity}
+                      suffix={seoSuffix}
                     />
                   </div>
                   <table className="w-full text-sm">

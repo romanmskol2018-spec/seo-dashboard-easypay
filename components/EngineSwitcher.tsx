@@ -5,12 +5,10 @@ const ENGINES = ["Яндекс", "Google"];
 
 export function EngineSwitcher({
   current,
-  period,
   group,
   suffix = "",
 }: {
   current: string;
-  period: number;
   group: Granularity;
   suffix?: string;
 }) {
@@ -19,7 +17,7 @@ export function EngineSwitcher({
       {ENGINES.map((e) => (
         <Link
           key={e}
-          href={`/?period=${period}&group=${group}&engine=${encodeURIComponent(e)}${suffix}`}
+          href={`/?group=${group}&engine=${encodeURIComponent(e)}${suffix}`}
           scroll={false}
           className={`px-3 py-1 text-xs rounded-md transition ${
             current === e
