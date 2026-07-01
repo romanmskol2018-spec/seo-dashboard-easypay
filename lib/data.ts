@@ -331,7 +331,6 @@ export type FunnelData = {
   medianCheck: number; // медианный чек (честнее среднего при выбросах)
   crVisitLead: number | null; // лиды / визиты, %
   crLeadQual: number | null; // кач / лиды, %
-  crQualSale: number | null; // продажи / кач, %
   crLeadSale: number | null; // продажи / лиды, % (сквозная)
   // Динамика к предыдущему равному окну (null = нет предыдущего окна)
   leadsDeltaPct: number | null;
@@ -367,9 +366,11 @@ export async function getFunnelData(
           (r) => fmt(r.weekStart) === fmt(curr[0].weekStart)
         )
       : 0;
+  // Пред. период — только если перед окном есть РОВНО столько же недель.
+  // Иначе (частичная история у края данных) дельта сравнивала бы неравные окна и врала.
   const prev =
-    startIdx > 0
-      ? allRows.slice(Math.max(0, startIdx - curr.length), startIdx)
+    curr.length > 0 && startIdx >= curr.length
+      ? allRows.slice(startIdx - curr.length, startIdx)
       : [];
 
   const sumVal = (rs: typeof allRows) => rs.reduce((s, r) => s + r.val, 0);
@@ -448,7 +449,6 @@ export async function getFunnelData(
     medianCheck: median(sales.map((s) => s.amount)),
     crVisitLead: visits && visits > 0 ? (leads / visits) * 100 : null,
     crLeadQual: leads > 0 ? (qual / leads) * 100 : null,
-    crQualSale: qual > 0 ? (salesCount / qual) * 100 : null,
     crLeadSale: leads > 0 ? (salesCount / leads) * 100 : null,
     leadsDeltaPct: prev.length ? deltaPct(leads, pLeads) : null,
     qualDeltaPct: prev.length ? deltaPct(qual, pQual) : null,
