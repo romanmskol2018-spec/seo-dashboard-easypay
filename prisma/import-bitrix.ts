@@ -22,6 +22,7 @@ const LF = {
   sistema: "UF_CRM_1779840045",
   referer: "UF_CRM_1779841897",
   direct: "UF_CRM_1779841908",
+  cardSum: "UF_CRM_CARD_SUM", // «Сумма продажи (реестр)» — реальная продажа карты
 };
 const DF = {
   project: "UF_CRM_1738065172726", // enum
@@ -176,10 +177,7 @@ async function main() {
   const fromIso = fmt(fromDate) + "T00:00:00";
   console.log(`📥 Bitrix импорт · окно ${nWeeks} нед с ${fmt(fromDate)} · режим: ${write ? "ЗАПИСЬ" : "СУХОЙ ПРОГОН"}`);
 
-  const [projLead, projDeal] = await Promise.all([
-    enumMap("lead", LF.project),
-    enumMap("deal", DF.project),
-  ]);
+  const projLead = await enumMap("lead", LF.project);
   const normProj = (raw: string, map: Record<string, string>): string => {
     const v = map[raw] || raw || "";
     if (v.includes("гражданств")) return "Easypay.World";
@@ -222,12 +220,11 @@ async function main() {
   console.log(`    получено лидов: ${rawLeads.length}`);
 
   // ---- сделки ----
-  console.log("  · тяну сделки…");
-  // ВАЖНО: «реальная продажа» = стадия «Заявка одобрена банком» (FINAL_INVOICE).
-  // Поле «Оплачено» содержит много дублей/автосделок — не используем его как критерий.
-  const SALE_STAGE = "FINAL_INVOICE";
+  console.log("  · тяну сделки (только для кач-лидов)…");
+  // Сделки нужны ТОЛЬКО чтобы отметить кач-лиды (лид, связанный со сделкой).
+  // Продажи/выручку берём НЕ из сделок, а из стадии лида UC_CARDSALE (ниже).
   const rawDeals = await listAll("crm.deal.list", {
-    select: ["ID", "DATE_CREATE", "TITLE", "OPPORTUNITY", "STAGE_ID", "LEAD_ID", DF.project, DF.metrika, DF.paidSum, DF.cardType],
+    select: ["ID", "LEAD_ID", DF.metrika],
     filter: { "[>DATE_CREATE]": fromIso },
   });
   console.log(`    получено сделок: ${rawDeals.length}`);
@@ -244,36 +241,36 @@ async function main() {
     proj: string;
   };
   const sales: Sale[] = [];
-  const normBank = (c: string): string | null => {
-    const s = (c || "").toLowerCase();
-    if (!s.trim()) return null;
-    if (s.includes("бакай")) return "Бакай (Киргизия)";
-    if (s.includes("ори")) return "Ориён / Орион";
-    if (s.includes("арцах")) return "Арцах (Армения)";
-    if (s.includes("виртуал")) return "Виртуальная";
-    return "Прочие СНГ";
-  };
   for (const r of rawDeals) {
     const met = String(r[DF.metrika] || "").trim();
     const leadId = String(r.LEAD_ID || "").trim();
     if (met) dealMetrikas.add(met);
     if (leadId && leadId !== "0") dealLeadIds.add(leadId);
-    // продажа = сделка в стадии «одобрена банком»
-    if (String(r.STAGE_ID || "") !== SALE_STAGE) continue;
+  }
+
+  // ---- продажи = лиды в стадии «Реальные продажи карт» (UC_CARDSALE) ----
+  // Правда по продажам карт: реестр разложен по лидам этой стадии, сумма — в UF_CRM_CARD_SUM.
+  // Тянем ВСЕ такие лиды (без оконного фильтра), чтобы не потерять начало мая.
+  console.log("  · тяну реальные продажи карт (стадия UC_CARDSALE)…");
+  const rawCardLeads = await listAll("crm.lead.list", {
+    select: ["ID", "DATE_CREATE", LF.project, LF.cardSum],
+    filter: { STATUS_ID: "UC_CARDSALE" },
+  });
+  for (const r of rawCardLeads) {
     const d = parseDate(String(r.DATE_CREATE));
     if (!d) continue;
-    const paidSum = toNum(String(r[DF.paidSum] || ""));
-    const amount = paidSum > 0 ? paidSum : toNum(String(r.OPPORTUNITY || ""));
-    const card = String(r[DF.cardType] || "");
+    const amount = toNum(String(r[LF.cardSum] || ""));
+    if (amount <= 0) continue;
     sales.push({
-      dealId: String(r.ID),
+      dealId: "L" + String(r.ID),
       date: d,
       amount: Math.round(amount),
-      bank: normBank(card),
-      cardType: card || null,
-      proj: normProj(String(r[DF.project] || ""), projDeal),
+      bank: null,
+      cardType: null,
+      proj: normProj(String(r[LF.project] || ""), projLead),
     });
   }
+  console.log(`    продаж карт (UC_CARDSALE): ${sales.length}`);
 
   // ---- агрегация лидов по неделям (дедуп union-find внутри недели) ----
   const byWeek = new Map<string, Lead[]>();
@@ -351,8 +348,7 @@ async function main() {
   }
   const revenue = sales.reduce((s, x) => s + x.amount, 0);
   console.log(`\n  ИТОГО лиды(вал): ${totVal} · кач-лиды: ${totQual}`);
-  console.log(`  Продажи(оплачено): ${sales.length} · выручка: ${revenue.toLocaleString("ru")} ₽ · ср.чек: ${sales.length ? Math.round(revenue / sales.length).toLocaleString("ru") : 0} ₽`);
-  console.log(`\n  (Текущий дашборд для сравнения: лиды 2625 · кач 338 · продажи 182 · выручка 15 434 696 ₽)`);
+  console.log(`  Продажи карт (UC_CARDSALE): ${sales.length} · выручка: ${revenue.toLocaleString("ru")} ₽ · ср.чек: ${sales.length ? Math.round(revenue / sales.length).toLocaleString("ru") : 0} ₽`);
 
   if (!write) {
     console.log("\n💡 Сухой прогон — в базу НЕ записано. Для записи: npm run import:bitrix -- --write");
@@ -391,8 +387,9 @@ async function main() {
   // убираем устаревшие недели до окна (остатки прежнего .xls-импорта)
   const winFrom = new Date(weeksSorted[0]);
   await prisma.leadStat.deleteMany({ where: { weekStart: { lt: winFrom } } });
-  // продажи: чистим только окно (по дате), затем пишем одним пакетом
-  await prisma.cardSale.deleteMany({ where: { date: { gte: winFrom } } });
+  // продажи: полностью пересобираем «живые» продажи из стадии UC_CARDSALE
+  // (исторический импорт isImport=true не трогаем)
+  await prisma.cardSale.deleteMany({ where: { isImport: false } });
   await prisma.cardSale.createMany({
     data: sales.map((s) => ({
       dealId: s.dealId,
