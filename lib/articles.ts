@@ -79,6 +79,16 @@ function weekKey(d: Date): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - day * DAY;
 }
 
+// Каноничный ключ URL/пути: срезаем query/fragment/пробел/%-хвост и завершающие
+// слэши. Иначе одна статья дробится на варианты (?source=…, /&…/, %20…) и счётчики
+// «страниц/статей» завышаются почти вдвое (баг H1 аудита).
+function canon(s: string): string {
+  let x = (s || "").split(/[?&#\s]/)[0];
+  x = x.replace(/%[0-9a-fA-F]{2}.*$/, "");
+  x = x.replace(/\/+$/, "");
+  return x || "/";
+}
+
 export async function getArticlesData(
   site: string | "ALL",
   from: string | null,
@@ -144,10 +154,11 @@ export async function getArticlesData(
   };
   const byUrl = new Map<string, Acc>();
   for (const r of cur) {
-    let a = byUrl.get(r.url);
+    const key = canon(r.url); // мёржим варианты одной статьи
+    let a = byUrl.get(key);
     if (!a) {
-      a = { url: r.url, path: r.path, site: r.site, visits: 0, visitors: 0, pageviews: 0, leads: 0, bounceW: 0, durW: 0, trend: new Array(buckets.length).fill(0) };
-      byUrl.set(r.url, a);
+      a = { url: key, path: canon(r.path), site: r.site, visits: 0, visitors: 0, pageviews: 0, leads: 0, bounceW: 0, durW: 0, trend: new Array(buckets.length).fill(0) };
+      byUrl.set(key, a);
     }
     a.visits += r.visits;
     a.visitors += r.visitors;
@@ -159,14 +170,17 @@ export async function getArticlesData(
     if (bi !== undefined) a.trend[bi] += r.visits;
   }
   const prevByUrl = new Map<string, number>();
-  for (const r of prev) prevByUrl.set(r.url, (prevByUrl.get(r.url) || 0) + r.visits);
+  for (const r of prev) {
+    const k = canon(r.url);
+    prevByUrl.set(k, (prevByUrl.get(k) || 0) + r.visits);
+  }
 
-  // метаданные страниц (заголовок/картинка/дата обновления)
+  // метаданные страниц (заголовок/картинка/дата обновления).
+  // Ключуем по каноничному URL — иначе мусорные варианты не находят метаданные.
   const metaRows = await prisma.articlePage.findMany({
-    where: { url: { in: [...byUrl.keys()] } },
     select: { url: true, title: true, image: true, modified: true },
   });
-  const metaByUrl = new Map(metaRows.map((m) => [m.url, m]));
+  const metaByUrl = new Map(metaRows.map((m) => [canon(m.url), m]));
 
   let rows: ArticleRow[] = [...byUrl.values()].map((a) => {
     const prevVisits = prevByUrl.get(a.url) || 0;

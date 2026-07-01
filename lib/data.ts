@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { formatBucketLabel, formatDateShort } from "@/lib/format";
+import { formatDateShort } from "@/lib/format";
 
 export type SiteSummary = {
   id: string;
@@ -187,6 +187,22 @@ function median(nums: number[]): number {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 }
 
+// Недельная сетка ДЛЯ ПРОДАЖ — та же, что у лидов (import-bitrix): якорь 2026-05-06,
+// недели ср–вт. Иначе бары выручки (по понедельникам) не совпадали бы с неделями
+// воронки/таблицы лидов (баг #1 аудита).
+const LEAD_WEEK_ANCHOR = Date.UTC(2026, 4, 6); // 2026-05-06
+const WEEK_MS = 7 * 86400000;
+function leadWeekStart(d: Date): string {
+  const idx = Math.floor((d.getTime() - LEAD_WEEK_ANCHOR) / WEEK_MS);
+  return fmt(new Date(LEAD_WEEK_ANCHOR + idx * WEEK_MS));
+}
+function weekRangeLabel(iso: string): string {
+  const s = new Date(iso);
+  const e = new Date(s.getTime() + 6 * 86400000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(s.getUTCDate())}.${p(s.getUTCMonth() + 1)}–${p(e.getUTCDate())}.${p(e.getUTCMonth() + 1)}`;
+}
+
 // Все доступные недели (для пикера диапазона). Берём по агрегату "ALL".
 export async function getAvailableWeeks(): Promise<
   { weekStart: string; label: string }[]
@@ -270,7 +286,7 @@ export async function getSalesData(
   const revenue = sales.reduce((s, x) => s + x.amount, 0);
   const wk = new Map<string, { cards: number; revenue: number }>();
   for (const s of sales) {
-    const key = bucketKey(fmt(s.date), "week");
+    const key = leadWeekStart(s.date); // сетка недель как у лидов (ANCHOR 6 мая)
     if (!wk.has(key)) wk.set(key, { cards: 0, revenue: 0 });
     const b = wk.get(key)!;
     b.cards++;
@@ -278,15 +294,18 @@ export async function getSalesData(
   }
   const byWeek = Array.from(wk.entries())
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([key, v]) => ({ label: formatBucketLabel(key, "week"), ...v }));
+    .map(([key, v]) => ({ label: weekRangeLabel(key), ...v }));
   const banks = new Map<string, number>();
+  let noBank = 0;
   for (const s of sales) {
-    if (!s.bank) continue;
+    if (!s.bank) { noBank++; continue; }
     banks.set(s.bank, (banks.get(s.bank) || 0) + 1);
   }
   const byBank = Array.from(banks.entries())
     .map(([bank, cnt]) => ({ bank, cards: cnt }))
     .sort((a, b) => b.cards - a.cards);
+  // Карты без страны-банка в реестре — отдельной строкой, чтобы сумма билась с итогом
+  if (noBank > 0) byBank.push({ bank: "Не указано", cards: noBank });
   return {
     cards,
     revenue,
@@ -312,7 +331,6 @@ export type FunnelData = {
   medianCheck: number; // медианный чек (честнее среднего при выбросах)
   crVisitLead: number | null; // лиды / визиты, %
   crLeadQual: number | null; // кач / лиды, %
-  crQualSale: number | null; // продажи / кач, %
   crLeadSale: number | null; // продажи / лиды, % (сквозная)
   // Динамика к предыдущему равному окну (null = нет предыдущего окна)
   leadsDeltaPct: number | null;
@@ -348,9 +366,11 @@ export async function getFunnelData(
           (r) => fmt(r.weekStart) === fmt(curr[0].weekStart)
         )
       : 0;
+  // Пред. период — только если перед окном есть РОВНО столько же недель.
+  // Иначе (частичная история у края данных) дельта сравнивала бы неравные окна и врала.
   const prev =
-    startIdx > 0
-      ? allRows.slice(Math.max(0, startIdx - curr.length), startIdx)
+    curr.length > 0 && startIdx >= curr.length
+      ? allRows.slice(startIdx - curr.length, startIdx)
       : [];
 
   const sumVal = (rs: typeof allRows) => rs.reduce((s, r) => s + r.val, 0);
@@ -429,7 +449,6 @@ export async function getFunnelData(
     medianCheck: median(sales.map((s) => s.amount)),
     crVisitLead: visits && visits > 0 ? (leads / visits) * 100 : null,
     crLeadQual: leads > 0 ? (qual / leads) * 100 : null,
-    crQualSale: qual > 0 ? (salesCount / qual) * 100 : null,
     crLeadSale: leads > 0 ? (salesCount / leads) * 100 : null,
     leadsDeltaPct: prev.length ? deltaPct(leads, pLeads) : null,
     qualDeltaPct: prev.length ? deltaPct(qual, pQual) : null,
