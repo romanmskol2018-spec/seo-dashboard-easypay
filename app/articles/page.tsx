@@ -6,7 +6,7 @@ import { StatCard } from "@/components/StatCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TabNav } from "@/components/TabNav";
 import { InfoHint } from "@/components/InfoHint";
-import { PeriodPicker } from "@/components/PeriodPicker";
+import { GlobalDatePicker } from "@/components/GlobalDatePicker";
 import { Icon } from "@/components/Icon";
 import { formatNumber, formatDelta, formatPct, formatDuration } from "@/lib/format";
 
@@ -62,6 +62,7 @@ export default async function ArticlesPage(props: {
   const sortKey: SortKey =
     sort === "leads" || sort === "modified" || sort === "delta" ? sort : "visits";
   const user = await getSessionUser().catch(() => null);
+  const today = new Date().toISOString().slice(0, 10);
 
   let data: Awaited<ReturnType<typeof getArticlesData>> | undefined;
   let dbError = false;
@@ -118,8 +119,16 @@ export default async function ArticlesPage(props: {
         </div>
       </header>
 
-      <div className="mb-8">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
         <TabNav />
+        {data?.bounds && (
+          <GlobalDatePicker
+            from={data.rangeFrom}
+            to={data.rangeTo}
+            min={data.bounds.min}
+            max={today}
+          />
+        )}
       </div>
 
       {dbError && (
@@ -141,35 +150,13 @@ export default async function ArticlesPage(props: {
 
       {!dbError && hasBounds && data && (
         <>
-          {/* Период — одна понятная строка + селектор */}
-          <div className="bg-surface border border-border rounded-2xl p-4 mb-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent/15 text-accent shrink-0">
-                  <Icon name="sliders" className="w-5 h-5" />
-                </span>
-                <div>
-                  <div className="font-semibold leading-tight">
-                    {formatRange(data.rangeFrom, data.rangeTo)}
-                  </div>
-                  <div className="text-muted text-xs">
-                    только органический трафик (SEO) · из Яндекс.Метрики
-                  </div>
-                </div>
-              </div>
-              <PeriodPicker
-                min={data.bounds!.min}
-                max={data.bounds!.max}
-                from={data.rangeFrom}
-                to={data.rangeTo}
-                basePath="/articles"
-                params={{
-                  ...(activeSite !== "ALL" ? { site: activeSite } : {}),
-                  ...(onlyArticles ? { articles: "1" } : {}),
-                  ...(sortKey !== "visits" ? { sort: sortKey } : {}),
-                }}
-              />
-            </div>
+          {/* Период задаётся глобально сверху; тут — что показываем */}
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted mb-6">
+            <Icon name="sliders" className="w-4 h-4" />
+            <span className="text-foreground font-medium">
+              {formatRange(data.rangeFrom, data.rangeTo)}
+            </span>
+            <span>· только органический трафик (SEO), из Яндекс.Метрики</span>
           </div>
 
           {/* KPI */}

@@ -67,7 +67,12 @@ export default async function QueriesPage(props: {
         </div>
       </header>
 
-      <div className="mb-8"><TabNav /></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
+        <TabNav />
+        <span className="text-muted text-[11px]">
+          позиции — текущий срез Топвизора · период не применяется
+        </span>
+      </div>
 
       {dbError && (
         <div className="bg-surface border border-border rounded-2xl p-8 text-center">
