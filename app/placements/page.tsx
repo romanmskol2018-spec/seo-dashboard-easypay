@@ -150,7 +150,7 @@ export default async function PlacementsPage(props: {
             <StatCard
               label={
                 <span className="inline-flex items-center gap-1">
-                  Обращения
+                  Цели
                   <InfoHint text="Достижения целей-обращений в Яндекс.Метрике (форма, контакты, телефон/мессенджер/e-mail) на реферальных визитах с этого донора — уникальные визиты. Это НЕ CRM-лиды из Bitrix." />
                 </span>
               }
@@ -187,7 +187,7 @@ export default async function PlacementsPage(props: {
               {(
                 [
                   { k: "visits", label: "По визитам" },
-                  { k: "leads", label: "По обращениям" },
+                  { k: "leads", label: "По целям" },
                   { k: "delta", label: "По росту" },
                 ] as { k: SortKey; label: string }[]
               ).map((o) => (
@@ -214,7 +214,7 @@ export default async function PlacementsPage(props: {
                   <th className="py-2 px-3 font-medium text-right">Динамика</th>
                   <th className="py-2 px-3 font-medium text-right">
                     <span className="inline-flex items-center gap-1">
-                      Обращения
+                      Цели
                       <InfoHint text="Уникальные реферальные визиты с целью-обращением в Метрике. Не CRM-лиды." />
                     </span>
                   </th>
@@ -274,7 +274,7 @@ export default async function PlacementsPage(props: {
             )}
             <p className="text-muted text-xs mt-3">
               Источник — Яндекс.Метрика, переходы с сайтов (referral), реферер свёрнут в домен.
-              Лиды — достижения целей-обращений на реферальных визитах. Конв. — лиды/визиты.
+              «Цели» — достижения целей в Метрике на реферальных визитах (не CRM-лиды). Конв. — цели/визиты.
               Свои сайты из доноров исключены. Динамика — к пред. периоду той же длины.
             </p>
           </section>

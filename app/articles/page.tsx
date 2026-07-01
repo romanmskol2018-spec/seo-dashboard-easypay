@@ -171,7 +171,7 @@ export default async function ArticlesPage(props: {
             <StatCard
               label={
                 <span className="inline-flex items-center gap-1">
-                  Обращения
+                  Цели
                   <InfoHint text="Достижения целей-обращений в Яндекс.Метрике (отправка формы, контакты, клик по телефону/мессенджеру/e-mail) на странице входа — считаем как уникальные визиты. Это НЕ CRM-лиды из Bitrix (воронка на «Обзоре»)." />
                 </span>
               }
@@ -214,7 +214,7 @@ export default async function ArticlesPage(props: {
                 {(
                   [
                     { k: "visits", label: "По визитам" },
-                    { k: "leads", label: "По обращениям" },
+                    { k: "leads", label: "По целям" },
                     { k: "delta", label: "По росту" },
                   ] as { k: SortKey; label: string }[]
                 ).map((o) => (
@@ -258,7 +258,7 @@ export default async function ArticlesPage(props: {
                   <th className="py-2 px-3 font-medium text-right">Динамика</th>
                   <th className="py-2 px-3 font-medium text-right">
                     <span className="inline-flex items-center gap-1">
-                      Обращения
+                      Цели
                       <InfoHint text="Уникальные визиты с целью-обращением в Метрике (форма/контакты/телефон/мессенджер) на странице входа. Не CRM-лиды." />
                     </span>
                   </th>
@@ -375,8 +375,8 @@ export default async function ArticlesPage(props: {
             )}
             <p className="text-muted text-xs mt-3">
               Источник — Яндекс.Метрика, страница входа (ym:s:startURL), только органика.
-              Лиды — достижения целей-обращений (контакты, заявки, клики по телефону/мессенджеру/email)
-              на странице входа. Конв. — лиды/визиты. Динамика — к пред. периоду той же длины.
+              «Цели» — достижения целей в Метрике (контакты, заявки, клики по телефону/мессенджеру/email)
+              на странице входа. Это НЕ CRM-лиды. Конв. — цели/визиты. Динамика — к пред. периоду той же длины.
             </p>
           </section>
         </>
