@@ -348,9 +348,10 @@ async function main() {
       n++;
     }
   }
-  // убираем устаревшие недели до окна (остатки прежнего .xls-импорта)
+  // ИСТОРИЮ НЕ УДАЛЯЕМ: раньше здесь чистились недели до окна, из-за чего каждый
+  // плановый прогон терял историю лидов (баг H4 аудита). Upsert обновляет окно —
+  // старые недели просто остаются.
   const winFrom = new Date(weeksSorted[0]);
-  await prisma.leadStat.deleteMany({ where: { weekStart: { lt: winFrom } } });
   // CardSale здесь не трогаем — продажи наполняет import-cards-registry.ts
   console.log(`  ✓ LeadStat: ${n} строк (окно с ${fmt(winFrom)}) · CardSale — см. import-cards-registry.ts`);
   console.log("🎉 Готово — данные обновлены из Bitrix");
