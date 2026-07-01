@@ -135,7 +135,7 @@ export default async function DashboardPage(props: {
   if (rangeTo > today) rangeTo = today;
   if (rangeTo < dataMin) rangeTo = dataMin;
   let rangeFrom =
-    validDay(from) || isoDay(new Date(new Date(rangeTo).getTime() - 89 * DAY));
+    validDay(from) || isoDay(new Date(new Date(rangeTo).getTime() - 29 * DAY));
   if (rangeFrom < dataMin) rangeFrom = dataMin;
   if (rangeFrom > rangeTo) rangeFrom = rangeTo;
 
