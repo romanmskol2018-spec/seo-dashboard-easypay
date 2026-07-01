@@ -26,8 +26,14 @@ export function FunnelChart({ data }: { data: FunnelData }) {
       color: "#6366f1",
       hint: "уникальные контакты",
     },
+    {
+      label: "Продажи",
+      value: data.sales,
+      color: "#22c55e",
+      hint: "оплаченные карты (реестр)",
+    },
   ];
-  const crs: (number | null)[] = [data.crVisitLead];
+  const crs: (number | null)[] = [data.crVisitLead, data.crLeadSale];
   const known = stages
     .map((s) => s.value)
     .filter((v): v is number => v !== null);
@@ -109,7 +115,7 @@ export function FunnelChart({ data }: { data: FunnelData }) {
                       {crs[i] === null ? "—" : formatPct(crs[i] as number)}
                     </span>
                     <span className="text-muted text-[11px]">
-                      {i === 0 ? "в лид" : "в кач-лид"}
+                      {i === 0 ? "в лид" : "в продажу"}
                     </span>
                   </div>
                   <div />
@@ -120,33 +126,18 @@ export function FunnelChart({ data }: { data: FunnelData }) {
         })}
       </div>
 
-      {/* Итог: продажи и выручка (датируются по сделке, не вкладываются в бары) */}
+      {/* Итог: доп. конверсия визит→продажа + пояснение */}
       <div className="mt-4 pt-4 border-t border-border">
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-sm bg-positive" />
-            <span className="text-sm font-medium">Продажи</span>
-            <span className="text-lg font-semibold tabular-nums">
-              {formatNumber(data.sales)}
-            </span>
-            <span className="text-muted text-xs">оплаченных карт</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-            <Metric
-              label="лид → продажа"
-              value={
-                data.crLeadSale === null ? "—" : formatPct(data.crLeadSale)
-              }
-            />
-            {crVisitSale !== null && (
-              <Metric label="визит → продажа" value={formatPct(crVisitSale, 2)} />
-            )}
-          </div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+          {crVisitSale !== null && (
+            <Metric label="визит → продажа" value={formatPct(crVisitSale, 2)} />
+          )}
+          <Metric label="ср. чек" value={`${formatNumber(data.avgCheck)} ₽`} />
         </div>
         <p className="text-muted text-[11px] mt-2">
-          Продажи и выручка — все оплаченные карты периода из реестра (по дате
-          продажи), считаются независимо от лидов CRM. «лид → продажа» — отношение
-          продаж периода к лидам периода, не строгая воронка.
+          Продажи — все оплаченные карты периода из реестра (по дате продажи),
+          считаются независимо от лидов CRM; «лид → продажа» — отношение продаж к
+          лидам периода, не строгая воронка.
         </p>
       </div>
     </div>
