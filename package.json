@@ -17,8 +17,8 @@
     "enrich:articles": "tsx prisma/enrich-articles.ts",
     "import:topvisor": "tsx prisma/import-topvisor.ts",
     "import:topvisor:keywords": "tsx prisma/import-topvisor-keywords.ts",
-    "import:crm": "tsx prisma/import-crm.ts",
     "import:bitrix": "tsx prisma/import-bitrix.ts",
+    "import:cards": "tsx prisma/import-cards-registry.ts",
     "db:studio": "prisma studio"
   },
   "prisma": {

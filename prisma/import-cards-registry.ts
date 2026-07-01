@@ -17,12 +17,14 @@ const prisma = new PrismaClient({
 const args = process.argv.slice(2);
 const write = args.includes("--write");
 const csvArg = args.find((a) => a.startsWith("--csv="));
+const urlArg = args.find((a) => a.startsWith("--url="));
 const fromArg = args.find((a) => a.startsWith("--from="));
 const CSV_PATH = csvArg ? csvArg.split("=")[1] : "";
+const CSV_URL = urlArg ? urlArg.slice("--url=".length) : ""; // URL может содержать '='
 const FROM = fromArg ? fromArg.split("=")[1] : "2026-05-01";
 
-if (!CSV_PATH) {
-  console.error("Укажи путь к CSV: --csv=/path/to/cards.csv");
+if (!CSV_PATH && !CSV_URL) {
+  console.error("Укажи источник: --csv=/path/to/cards.csv  или  --url=https://…&output=csv");
   process.exit(1);
 }
 
@@ -58,7 +60,12 @@ const DATE = /^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/;
 const NAME = /[А-Яа-яЁё]{2,}/;
 
 async function main() {
-  const raw = readFileSync(CSV_PATH, "utf8");
+  const raw = CSV_URL
+    ? await fetch(CSV_URL).then((r) => {
+        if (!r.ok) throw new Error(`CSV URL вернул ${r.status}`);
+        return r.text();
+      })
+    : readFileSync(CSV_PATH, "utf8");
   const R = parseCsv(raw);
   const H = R[0].map((s) => s.trim());
   const ix = (n: string) => H.indexOf(n);
@@ -74,6 +81,7 @@ async function main() {
 
   type Sale = { dealId: string; date: Date; amount: number; cardType: string | null; bank: string | null };
   const sales: Sale[] = [];
+  const dropped: { fio: string; amount: number; date: string }[] = [];
   let cur: string | null = null;
   let idx = 0;
   for (const r of R.slice(1)) {
@@ -89,7 +97,10 @@ async function main() {
     if (!fio || !NAME.test(fio)) continue;
     if (!cur || cur < FROM) continue;
     const amount = toNum(r[iSum] || "");
-    if (amount <= 0 || amount >= 100000) continue; // отсекаем мусорные суммы
+    if (amount <= 0) continue;
+    // Раньше молча резали всё ≥100k и теряли крупные карты. Теперь потолок 1 млн
+    // (реальный чек ~20–40к, но премиум бывает), а явный мусор (сотни млн) — логируем.
+    if (amount >= 1000000) { dropped.push({ fio, amount, date: cur }); continue; }
     const card = iCard >= 0 ? String(r[iCard] || "").trim() : "";
     let bank: string | null = null;
     for (const [col, name] of ci) {
@@ -116,6 +127,11 @@ async function main() {
   console.log(`  карт: ${sales.length} · выручка: ${revenue.toLocaleString("ru")} ₽ · ср.чек: ${sales.length ? Math.round(revenue / sales.length).toLocaleString("ru") : 0} ₽`);
   for (const k of [...byMonth.keys()].sort())
     console.log(`   ${k}: ${byMonth.get(k)!.n} карт, ${byMonth.get(k)!.s.toLocaleString("ru")} ₽`);
+  if (dropped.length) {
+    console.log(`  ⚠ отброшено как явный мусор (≥1 млн ₽): ${dropped.length}`);
+    for (const d of dropped.slice(0, 3))
+      console.log(`     ${d.date} · ${d.fio.slice(0, 24)} · ${d.amount.toLocaleString("ru")} ₽`);
+  }
 
   if (!write) {
     console.log("\n💡 Сухой прогон — в базу НЕ записано. Для записи добавь --write");
