@@ -176,7 +176,11 @@ export default async function QueriesPage(props: {
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-right tabular-nums">
-                      {r.delta === null || r.delta === 0 ? (
+                      {r.move === "in" ? (
+                        <span className="text-positive" title="впервые в выдаче">▲ вошёл</span>
+                      ) : r.move === "out" ? (
+                        <span className="text-negative" title="выпал из выдачи">▼ выпал</span>
+                      ) : r.delta === null || r.delta === 0 ? (
                         <span className="text-muted">—</span>
                       ) : (
                         <span className={r.delta > 0 ? "text-positive" : "text-negative"}>

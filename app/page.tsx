@@ -404,7 +404,7 @@ export default async function DashboardPage(props: {
           <SectionTitle
             icon="trending"
             title="Продажи карт"
-            sub="реально оплаченные сделки, без разового импорта истории 25–28.05"
+            sub="реально проданные карты из реестра (по дате продажи)"
           />
           <div className="grid lg:grid-cols-2 gap-5">
             {sales.byWeek.length > 0 && <RevenueBars weeks={sales.byWeek} />}

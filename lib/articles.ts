@@ -111,6 +111,14 @@ export async function getArticlesData(
     };
   }
 
+  // Период целиком вне данных → пусто (а не схлоп в один день).
+  if ((from && from > bounds.max) || (to && to < bounds.min)) {
+    return {
+      sites, bounds, rangeFrom: from || bounds.min, rangeTo: to || bounds.max, onlyArticles, sort,
+      totals: { visits: 0, visitors: 0, pageviews: 0, leads: 0, conv: 0, prevVisits: 0, deltaPct: null, pages: 0 },
+      rows: [],
+    };
+  }
   // Резолвим диапазон: по умолчанию последние 30 дней доступных данных.
   const clamp = (d: string) => (d < bounds.min ? bounds.min : d > bounds.max ? bounds.max : d);
   let rangeTo = to ? clamp(to) : bounds.max;
@@ -219,7 +227,14 @@ export async function getArticlesData(
       return byVisits(x, y);
     });
   } else if (sort === "delta") {
-    rows.sort((x, y) => (y.deltaPct ?? -1e9) - (x.deltaPct ?? -1e9) || byVisits(x, y));
+    // «По росту»: новые/малобазовые (prev<10) — вверх по трафику, дальше по %.
+    const low = (r: ArticleRow) => r.prevVisits < 10 && r.visits > 0;
+    rows.sort((x, y) => {
+      const xl = low(x), yl = low(y);
+      if (xl !== yl) return xl ? -1 : 1;
+      if (xl && yl) return byVisits(x, y);
+      return (y.deltaPct ?? -1e9) - (x.deltaPct ?? -1e9) || byVisits(x, y);
+    });
   } else {
     rows.sort(byVisits);
   }

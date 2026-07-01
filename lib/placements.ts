@@ -35,6 +35,18 @@ function weekKey(d: Date): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - day * DAY;
 }
 
+// Служебные «доноры» — не площадки: сервисы Яндекс/Google, почтовые клиенты, AI.
+// Их не показываем и не считаем в доноры (иначе список и счётчик засоряются).
+const SERVICE_DONORS = [
+  "metrika.yandex", "webmaster.yandex", "alice.yandex", "iframe-yang", "passport.yandex",
+  "mail.google", "gmail", "gemini.google", "docs.google", "keep.google",
+  "com.google.android", "e.mail.ru", "mail.ru",
+];
+function isServiceDonor(donor: string): boolean {
+  const d = (donor || "").toLowerCase();
+  return SERVICE_DONORS.some((s) => d.includes(s));
+}
+
 export async function getPlacementSites(): Promise<string[]> {
   const rows = await prisma.placementStat.findMany({ distinct: ["ourSite"], orderBy: { ourSite: "asc" }, select: { ourSite: true } });
   return rows.map((r) => r.ourSite);
@@ -58,6 +70,13 @@ export async function getPlacementsData(
   if (!bounds) {
     return {
       sites, bounds: null, rangeFrom: from || "", rangeTo: to || "", sort,
+      totals: { visits: 0, visitors: 0, leads: 0, conv: 0, donors: 0, deltaPct: null }, rows: [],
+    };
+  }
+  // Запрошенный период целиком вне данных → пусто (а не схлоп в один день)
+  if ((from && from > bounds.max) || (to && to < bounds.min)) {
+    return {
+      sites, bounds, rangeFrom: from || bounds.min, rangeTo: to || bounds.max, sort,
       totals: { visits: 0, visitors: 0, leads: 0, conv: 0, donors: 0, deltaPct: null }, rows: [],
     };
   }
@@ -91,6 +110,7 @@ export async function getPlacementsData(
   type Acc = { donor: string; visits: number; visitors: number; leads: number; trend: number[] };
   const byDonor = new Map<string, Acc>();
   for (const r of cur) {
+    if (isServiceDonor(r.donor)) continue;
     let a = byDonor.get(r.donor);
     if (!a) { a = { donor: r.donor, visits: 0, visitors: 0, leads: 0, trend: new Array(buckets.length).fill(0) }; byDonor.set(r.donor, a); }
     a.visits += r.visits; a.visitors += r.visitors; a.leads += r.leads;
@@ -111,7 +131,16 @@ export async function getPlacementsData(
 
   const byVisits = (x: PlacementRow, y: PlacementRow) => y.visits - x.visits;
   if (sort === "leads") rows.sort((x, y) => y.leads - x.leads || byVisits(x, y));
-  else if (sort === "delta") rows.sort((x, y) => (y.deltaPct ?? -1e9) - (x.deltaPct ?? -1e9) || byVisits(x, y));
+  else if (sort === "delta") {
+    // «По росту»: новые/малобазовые (prev<10) — вверх по трафику, дальше по %.
+    const low = (r: PlacementRow) => r.prevVisits < 10 && r.visits > 0;
+    rows.sort((x, y) => {
+      const xl = low(x), yl = low(y);
+      if (xl !== yl) return xl ? -1 : 1;
+      if (xl && yl) return byVisits(x, y);
+      return (y.deltaPct ?? -1e9) - (x.deltaPct ?? -1e9) || byVisits(x, y);
+    });
+  }
   else rows.sort(byVisits);
 
   const totals = rows.reduce(
