@@ -8,7 +8,7 @@ type Channel = { key: keyof LeadWeek; label: string; color: string };
 const CHANNELS: Channel[] = [
   { key: "seo", label: "SEO", color: "#22c55e" },
   { key: "direct", label: "Директ", color: "#3b82f6" },
-  { key: "recom", label: "Реком.", color: "#a855f7" },
+  { key: "recom", label: "Прямые/неизв.", color: "#a855f7" },
   { key: "klerk", label: "Клерк", color: "#f59e0b" },
   { key: "insta", label: "Инста", color: "#ec4899" },
   { key: "karty", label: "Карты", color: "#14b8a6" },

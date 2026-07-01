@@ -280,13 +280,16 @@ export async function getSalesData(
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
     .map(([key, v]) => ({ label: formatBucketLabel(key, "week"), ...v }));
   const banks = new Map<string, number>();
+  let noBank = 0;
   for (const s of sales) {
-    if (!s.bank) continue;
+    if (!s.bank) { noBank++; continue; }
     banks.set(s.bank, (banks.get(s.bank) || 0) + 1);
   }
   const byBank = Array.from(banks.entries())
     .map(([bank, cnt]) => ({ bank, cards: cnt }))
     .sort((a, b) => b.cards - a.cards);
+  // Карты без страны-банка в реестре — отдельной строкой, чтобы сумма билась с итогом
+  if (noBank > 0) byBank.push({ bank: "Не указано", cards: noBank });
   return {
     cards,
     revenue,

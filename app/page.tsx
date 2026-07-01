@@ -352,7 +352,7 @@ export default async function DashboardPage(props: {
                     <th className="py-2 px-3 font-medium text-right">Вал</th>
                     <th className="py-2 px-3 font-medium text-right">Кач</th>
                     <th className="py-2 px-3 font-medium text-right">SEO</th>
-                    <th className="py-2 px-3 font-medium text-right">Реком.</th>
+                    <th className="py-2 px-3 font-medium text-right">Прям./неизв.</th>
                     <th className="py-2 px-3 font-medium text-right">Директ</th>
                     <th className="py-2 px-3 font-medium text-right">Клерк</th>
                     <th className="py-2 px-3 font-medium text-right">Инст.</th>
