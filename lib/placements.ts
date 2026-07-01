@@ -129,6 +129,9 @@ export async function getPlacementsData(
     };
   });
 
+  // Доноры с 1 визитом — шум; не показываем (порог: минимум 2 визита за период)
+  rows = rows.filter((r) => r.visits >= 2);
+
   const byVisits = (x: PlacementRow, y: PlacementRow) => y.visits - x.visits;
   if (sort === "leads") rows.sort((x, y) => y.leads - x.leads || byVisits(x, y));
   else if (sort === "delta") {

@@ -24,25 +24,39 @@ export type KeywordsData = {
 // сводка позиций по URL (для колонки в таблице статей) — по Яндексу
 export type UrlKwSummary = { queries: number; top10: number; best: number | null };
 
+// Каноничный ключ URL — как в lib/articles (срез query/хвостов/слэша). Иначе
+// после чистки URL статей матч с позициями Топвизора ломается (столбец «Запросы»
+// становится пустым).
+function canonUrl(s: string): string {
+  let x = (s || "").split(/[?&#\s]/)[0];
+  x = x.replace(/%[0-9a-fA-F]{2}.*$/, "");
+  x = x.replace(/\/+$/, "");
+  return x || "/";
+}
+
 export async function getKeywordSummaryByUrl(
   urls: string[],
   engine = "Яндекс"
 ): Promise<Map<string, UrlKwSummary>> {
   const out = new Map<string, UrlKwSummary>();
   if (!urls.length) return out;
+  const want = new Set(urls.map(canonUrl));
   const rows = await prisma.keywordPosition.findMany({
-    where: { url: { in: urls }, searchEngine: engine },
+    where: { searchEngine: engine, url: { not: null } },
     select: { url: true, position: true },
   });
   for (const r of rows) {
     if (!r.url) continue;
-    const s = out.get(r.url) || { queries: 0, top10: 0, best: null };
-    s.queries++;
+    const key = canonUrl(r.url);
+    if (!want.has(key)) continue;
+    const s = out.get(key) || { queries: 0, top10: 0, best: null };
+    // считаем только ранжируемые запросы (в выдаче), а не все отслеживаемые
     if (r.position !== null) {
+      s.queries++;
       if (r.position <= 10) s.top10++;
       if (s.best === null || r.position < s.best) s.best = r.position;
     }
-    out.set(r.url, s);
+    out.set(key, s);
   }
   return out;
 }

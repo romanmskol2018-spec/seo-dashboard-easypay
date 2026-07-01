@@ -173,6 +173,21 @@ export default async function DashboardPage(props: {
     }
   }
 
+  // Каналы для детальной таблицы — только те, по которым есть данные (пустые скрываем)
+  const detailChannels = (
+    [
+      ["seo", "SEO"],
+      ["recom", "Прям./неизв."],
+      ["direct", "Директ"],
+      ["klerk", "Клерк"],
+      ["insta", "Инст."],
+      ["karty", "Карты"],
+      ["dzen", "Дзен"],
+      ["youtube", "Ютуб"],
+      ["partner", "Партн."],
+    ] as const
+  ).filter(([k]) => leads?.weeks.some((w) => (w[k] as number) > 0));
+
   // Ссылки сохраняют глобальный период (from/to) + движок/группировку/проект
   const projHref = (p: string) =>
     `/?from=${rangeFrom}&to=${rangeTo}&group=${granularity}&engine=${encodeURIComponent(searchEngine)}` +
@@ -333,15 +348,11 @@ export default async function DashboardPage(props: {
                     <th className="py-2 pr-4 font-medium">Неделя</th>
                     <th className="py-2 px-3 font-medium text-right">Вал</th>
                     <th className="py-2 px-3 font-medium text-right">Кач</th>
-                    <th className="py-2 px-3 font-medium text-right">SEO</th>
-                    <th className="py-2 px-3 font-medium text-right">Прям./неизв.</th>
-                    <th className="py-2 px-3 font-medium text-right">Директ</th>
-                    <th className="py-2 px-3 font-medium text-right">Клерк</th>
-                    <th className="py-2 px-3 font-medium text-right">Инст.</th>
-                    <th className="py-2 px-3 font-medium text-right">Карты</th>
-                    <th className="py-2 px-3 font-medium text-right">Дзен</th>
-                    <th className="py-2 px-3 font-medium text-right">Ютуб</th>
-                    <th className="py-2 pl-3 font-medium text-right">Партн.</th>
+                    {detailChannels.map(([k, label]) => (
+                      <th key={k} className="py-2 px-3 font-medium text-right">
+                        {label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -357,15 +368,11 @@ export default async function DashboardPage(props: {
                       <td className="py-2.5 px-3 text-right text-positive">
                         {w.qual === null ? "—" : formatNumber(w.qual)}
                       </td>
-                      <td className="py-2.5 px-3 text-right">{w.seo || "—"}</td>
-                      <td className="py-2.5 px-3 text-right">{w.recom || "—"}</td>
-                      <td className="py-2.5 px-3 text-right">{w.direct || "—"}</td>
-                      <td className="py-2.5 px-3 text-right">{w.klerk || "—"}</td>
-                      <td className="py-2.5 px-3 text-right">{w.insta || "—"}</td>
-                      <td className="py-2.5 px-3 text-right">{w.karty || "—"}</td>
-                      <td className="py-2.5 px-3 text-right">{w.dzen || "—"}</td>
-                      <td className="py-2.5 px-3 text-right">{w.youtube || "—"}</td>
-                      <td className="py-2.5 pl-3 text-right">{w.partner || "—"}</td>
+                      {detailChannels.map(([k]) => (
+                        <td key={k} className="py-2.5 px-3 text-right">
+                          {(w[k] as number) || "—"}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
