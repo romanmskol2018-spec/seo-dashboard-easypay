@@ -8,6 +8,7 @@
 import { PrismaClient } from "@prisma/client";
 import { listAll, enumMap } from "../lib/bitrix";
 import { matchChannel, LEAD_SRC_FIELDS, SRC_KEYS, type SrcKey } from "../lib/attribution";
+import { DASHBOARD_START } from "../lib/projects";
 
 // Для массовой записи используем ПРЯМОЕ подключение Neon (DIRECT_URL, без пулера):
 // пулер роняет коннект (P1017) на больших циклах записи.
@@ -137,10 +138,13 @@ async function main() {
   // покрывать весь май, иначе часть реальных продаж выпадает из дашборда.
   const nWeeks = weeksArg ? Number(weeksArg.split("=")[1]) : 10;
 
-  // окно: nWeeks недель назад от текущей недели
+  // окно: nWeeks недель назад от текущей недели, но не раньше DASHBOARD_START
+  // (до этой даты Bitrix не был толком настроен — мусорные/тестовые лиды).
   const now = new Date();
   const curWeek = weekStart(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())));
-  const fromDate = new Date(curWeek.getTime() - (nWeeks - 1) * 7 * DAY);
+  let fromDate = new Date(curWeek.getTime() - (nWeeks - 1) * 7 * DAY);
+  const startDate = new Date(DASHBOARD_START + "T00:00:00Z");
+  if (fromDate < startDate) fromDate = startDate;
   const fromIso = fmt(fromDate) + "T00:00:00";
   console.log(`📥 Bitrix импорт · окно ${nWeeks} нед с ${fmt(fromDate)} · режим: ${write ? "ЗАПИСЬ" : "СУХОЙ ПРОГОН"}`);
 
