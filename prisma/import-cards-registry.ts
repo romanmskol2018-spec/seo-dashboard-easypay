@@ -16,6 +16,7 @@
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import { fetchPhoneChannelMap, normalizeMobile } from "../lib/attribution";
+import { DASHBOARD_START } from "../lib/projects";
 
 const prisma = new PrismaClient({
   datasourceUrl: process.env.DIRECT_URL || process.env.DATABASE_URL,
@@ -29,7 +30,7 @@ const urlArg = args.find((a) => a.startsWith("--url="));
 const fromArg = args.find((a) => a.startsWith("--from="));
 const CSV_PATH = csvArg ? csvArg.split("=")[1] : "";
 const CSV_URL = urlArg ? urlArg.slice("--url=".length) : ""; // URL может содержать '='
-const FROM = fromArg ? fromArg.split("=")[1] : "2026-05-01";
+const FROM = fromArg ? fromArg.split("=")[1] : DASHBOARD_START;
 
 if (!CSV_PATH && !CSV_URL) {
   console.error("Укажи источник: --csv=/path/to/cards.csv  или  --url=https://…&output=csv");

@@ -132,8 +132,12 @@ export async function listAllFast(
     : ["ID", ...opts.select];
   const PAGES = 25;
   const sel = select.map((s, i) => `select[${i}]=${s}`).join("&");
+  // Ключ ОБЯЗАН быть закодирован: операторы вида "[>=DATE_CREATE]" содержат
+  // свой "=", и без кодирования строка "filter[>=DATE_CREATE]=X" рвётся на
+  // недопустимый querystring (Bitrix молча теряет фильтр — проверено на бою:
+  // без кодирования фильтр по дате не применялся, шли лиды аж с 2023 года).
   const flt = Object.entries(opts.filter || {})
-    .map(([k, v]) => `filter${k}=${encodeURIComponent(v)}`)
+    .map(([k, v]) => `filter${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join("&");
   // fromId подставляется в конец, чтобы $result-ссылка осталась сырой строкой
   const pageCmd = (fromId: string) =>

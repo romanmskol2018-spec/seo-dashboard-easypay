@@ -4,7 +4,7 @@
 // Менять словарь каналов — только здесь, иначе разъедутся цифры
 // «лиды по каналам» и «выручка по каналам».
 import { listAllFast, enumMap } from "./bitrix";
-import { LEAD_PROJECTS } from "./projects";
+import { LEAD_PROJECTS, DASHBOARD_START } from "./projects";
 
 export const SRC_KEYS = [
   "seo", "recom", "direct", "klerk", "insta", "karty", "dzen", "youtube", "partner",
@@ -109,8 +109,10 @@ export type PhoneAttribution = {
 // Проект: от того же лида, что и канал; если пуст — первый лид телефона
 // с заполненным проектом; если и там пусто — проект СДЕЛКИ, связанной с
 // любым лидом телефона (у сделок «Проект» заполняется чаще, чем у лидов).
-// Дата лида не фильтруется намеренно: покупатель мая мог оставить первый
-// лид задолго до покупки — обрезка по дате роняет покрытие с 95% до ~9%.
+// Лиды до DASHBOARD_START сознательно игнорируются — до этой даты Bitrix
+// не был толком настроен (мусорные/тестовые лиды, кривые UTM). Из 62 502
+// лидов истории только ~7 000 (11%) — с этой даты; покрытие атрибуции
+// падает с ~97% до ~84%, но это честнее: остальное — не пригодные данные.
 export async function fetchPhoneChannelMap(
   onProgress?: (leadsFetched: number) => void
 ): Promise<Map<string, PhoneAttribution>> {
@@ -123,6 +125,7 @@ export async function fetchPhoneChannelMap(
         "ID", "PHONE", "UTM_SOURCE", "UTM_MEDIUM", "SOURCE_ID",
         F.istochnik, F.sistema, F.referer, F.direct, LEAD_PROJECT_FIELD,
       ],
+      filter: { "[>=DATE_CREATE]": `${DASHBOARD_START}T00:00:00` },
     },
     onProgress
   );
@@ -166,6 +169,7 @@ export async function fetchPhoneChannelMap(
   const dealProjEnum = await enumMap("deal", DEAL_PROJECT_FIELD);
   const deals = await listAllFast("crm.deal.list", {
     select: ["ID", "LEAD_ID", DEAL_PROJECT_FIELD],
+    filter: { "[>=DATE_CREATE]": `${DASHBOARD_START}T00:00:00` },
   });
   const leadDealProj = new Map<string, string>();
   for (const d of deals) {
