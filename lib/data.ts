@@ -265,6 +265,9 @@ export type SalesData = {
   median: number; // медианный чек (устойчив к выбросам)
   byWeek: { label: string; cards: number; revenue: number }[];
   byBank: { bank: string; cards: number }[];
+  // Выручка по каналам: source из атрибуции реестра (телефон → первый лид
+  // Bitrix → канал). null = карта без телефона или лид не найден.
+  bySource: { source: string | null; cards: number; revenue: number }[];
 };
 
 // Продажи карт = живые оплаченные сделки (без импорта истории).
@@ -311,6 +314,17 @@ export async function getSalesData(
     .sort((a, b) => b.cards - a.cards);
   // Карты без страны-банка в реестре — отдельной строкой, чтобы сумма билась с итогом
   if (noBank > 0) byBank.push({ bank: "Не указано", cards: noBank });
+  const srcMap = new Map<string | null, { cards: number; revenue: number }>();
+  for (const s of sales) {
+    const k = s.source ?? null;
+    const e = srcMap.get(k) || { cards: 0, revenue: 0 };
+    e.cards++;
+    e.revenue += s.amount;
+    srcMap.set(k, e);
+  }
+  const bySource = Array.from(srcMap.entries())
+    .map(([source, v]) => ({ source, ...v }))
+    .sort((a, b) => b.revenue - a.revenue);
   return {
     cards,
     revenue,
@@ -318,6 +332,7 @@ export async function getSalesData(
     median: median(sales.map((s) => s.amount)),
     byWeek,
     byBank,
+    bySource,
   };
 }
 
