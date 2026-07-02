@@ -23,6 +23,8 @@ import { ChannelMix } from "@/components/ChannelMix";
 import { RevenueBars } from "@/components/RevenueBars";
 import { SalesByChannel } from "@/components/SalesByChannel";
 import { GlobalDatePicker } from "@/components/GlobalDatePicker";
+import { ProjectSwitcher } from "@/components/ProjectSwitcher";
+import { LEAD_PROJECTS } from "@/lib/projects";
 import { SeoFunnel } from "@/components/SeoFunnel";
 import {
   formatNumber,
@@ -84,14 +86,6 @@ function SectionTitle({
   );
 }
 
-const LEAD_PROJECTS = [
-  "Easypay.World",
-  "4YouCards",
-  "VisaMasterCards",
-  "AVO.cards",
-  "Visatut",
-];
-
 export default async function DashboardPage(props: {
   searchParams: Promise<{
     period?: string;
@@ -143,7 +137,7 @@ export default async function DashboardPage(props: {
   let data;
   let dbError = false;
   try {
-    data = await getDashboardData(rangeFrom, rangeTo, granularity, searchEngine);
+    data = await getDashboardData(rangeFrom, rangeTo, granularity, searchEngine, project);
   } catch {
     dbError = true;
   }
@@ -162,10 +156,10 @@ export default async function DashboardPage(props: {
     const weekFrom = clampWeek(weekOf(rangeFrom));
     const weekTo = clampWeek(weekOf(rangeTo));
     try {
-      funnel = await getFunnelData(weekFrom, weekTo);
+      funnel = await getFunnelData(weekFrom, weekTo, project);
       [leads, sales] = await Promise.all([
         getLeadsData(project, weekFrom, weekTo),
-        getSalesData(funnel.windowFrom || undefined, funnel.windowTo || undefined),
+        getSalesData(funnel.windowFrom || undefined, funnel.windowTo || undefined, project),
       ]);
     } catch {
       leads = null;
@@ -189,10 +183,7 @@ export default async function DashboardPage(props: {
     ] as const
   ).filter(([k]) => leads?.weeks.some((w) => (w[k] as number) > 0));
 
-  // Ссылки сохраняют глобальный период (from/to) + движок/группировку/проект
-  const projHref = (p: string) =>
-    `/?from=${rangeFrom}&to=${rangeTo}&group=${granularity}&engine=${encodeURIComponent(searchEngine)}` +
-    (p !== "ALL" ? `&proj=${encodeURIComponent(p)}` : "");
+  // Ссылки сохраняют глобальный период (from/to) + проект
   const seoSuffix =
     `&from=${rangeFrom}&to=${rangeTo}` +
     (project !== "ALL" ? `&proj=${encodeURIComponent(project)}` : "");
@@ -238,9 +229,14 @@ export default async function DashboardPage(props: {
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <TabNav />
         <GlobalDatePicker from={rangeFrom} to={rangeTo} min={dataMin} max={today} />
+      </div>
+
+      {/* Глобальный фильтр проекта — действует на все секции страницы */}
+      <div className="mb-8">
+        <ProjectSwitcher project={project} />
       </div>
 
       {dbError && (
@@ -260,6 +256,9 @@ export default async function DashboardPage(props: {
           <div className="flex flex-wrap items-center gap-2 text-sm mb-6">
             <Icon name="sliders" className="w-4 h-4 text-muted" />
             <span className="font-medium">Воронка и продажи</span>
+            {project !== "ALL" && (
+              <span className="text-accent font-medium">· {project}</span>
+            )}
             {funnel.rangeFrom && (
               <span className="text-muted">
                 · {funnel.weeks} нед · {funnel.rangeFrom} – {funnel.rangeTo}
@@ -314,23 +313,6 @@ export default async function DashboardPage(props: {
             title="Лиды и каналы привлечения"
             sub={`${project === "ALL" ? "все проекты" : project} · откуда приходят и что конвертит`}
           />
-          {/* Фильтр проектов */}
-          <div className="flex flex-wrap gap-1.5 mb-4">
-            {["ALL", ...leads.projects].map((p) => (
-              <Link
-                key={p}
-                href={projHref(p)}
-                className={`px-3 py-1.5 text-xs rounded-lg border transition ${
-                  p === project
-                    ? "bg-accent/15 text-accent border-accent"
-                    : "bg-surface text-muted border-border hover:border-accent"
-                }`}
-              >
-                {p === "ALL" ? "Все проекты" : p}
-              </Link>
-            ))}
-          </div>
-
           <ChannelMix weeks={leads.weeks} />
 
           {/* Детализация — под спойлером */}
@@ -394,7 +376,11 @@ export default async function DashboardPage(props: {
           <SectionTitle
             icon="trending"
             title="Продажи карт"
-            sub="реально проданные карты из реестра (по дате продажи)"
+            sub={
+              project === "ALL"
+                ? "реально проданные карты из реестра (по дате продажи)"
+                : `${project} · проект карты определён по лиду клиента; карты без найденного лида не входят`
+            }
           />
           <div className="grid lg:grid-cols-2 gap-5">
             {/* Выручка по каналам — только когда атрибуция уже прогнана */}

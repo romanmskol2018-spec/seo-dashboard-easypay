@@ -87,7 +87,7 @@ async function main() {
   ];
   const ci = countries.map(([c, bank]) => [ix(c), bank] as [number, string]);
 
-  type Sale = { dealId: string; date: Date; amount: number; cardType: string | null; bank: string | null; phone: string | null; source: string | null };
+  type Sale = { dealId: string; date: Date; amount: number; cardType: string | null; bank: string | null; phone: string | null; source: string | null; project: string | null };
   const sales: Sale[] = [];
   const dropped: { fio: string; amount: number; date: string }[] = [];
   let cur: string | null = null;
@@ -123,10 +123,11 @@ async function main() {
       bank,
       phone: iPhone >= 0 ? normalizeMobile(String(r[iPhone] || "")) : null,
       source: null,
+      project: null,
     });
   }
 
-  // ---- атрибуция канала по лидам Bitrix (телефон → первый лид → канал) ----
+  // ---- атрибуция по лидам Bitrix: телефон → лид → канал + проект ----
   const attrOn = !noAttr && !!process.env.BITRIX_WEBHOOK_URL;
   if (attrOn) {
     console.log("🔗 Атрибуция: тяну лиды Bitrix (все, seek-батчами)…");
@@ -135,10 +136,14 @@ async function main() {
     });
     console.log(`   лидов-телефонов в карте: ${phoneCh.size}`);
     for (const s of sales) {
-      if (s.phone) s.source = phoneCh.get(s.phone) ?? null;
+      const hit = s.phone ? phoneCh.get(s.phone) : undefined;
+      if (hit) {
+        s.source = hit.channel;
+        s.project = hit.project;
+      }
     }
   } else {
-    console.log(`⚠ Атрибуция каналов выключена (${noAttr ? "--no-attr" : "нет BITRIX_WEBHOOK_URL"}) — source будет пуст`);
+    console.log(`⚠ Атрибуция каналов выключена (${noAttr ? "--no-attr" : "нет BITRIX_WEBHOOK_URL"}) — source/project будут пусты`);
   }
 
   const revenue = sales.reduce((s, x) => s + x.amount, 0);
@@ -168,6 +173,9 @@ async function main() {
     console.log(`  🔗 канал определён: ${attributed} из ${sales.length} (${sales.length ? Math.round((attributed / sales.length) * 100) : 0}%)`);
     for (const [k, v] of [...bySrc.entries()].sort((a, b) => b[1].s - a[1].s))
       console.log(`     ${k}: ${v.n} карт · ${v.s.toLocaleString("ru")} ₽`);
+    const byProj = new Map<string, number>();
+    for (const s of sales) byProj.set(s.project ?? "— не определён", (byProj.get(s.project ?? "— не определён") || 0) + 1);
+    console.log(`  🏷 проект: ` + [...byProj.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}: ${n}`).join(" · "));
   }
 
   if (!write) {
@@ -185,7 +193,7 @@ async function main() {
       cardType: s.cardType,
       bank: s.bank,
       product: s.cardType,
-      project: null,
+      project: s.project,
       source: s.source,
       isImport: false,
     })),
