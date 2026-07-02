@@ -3,12 +3,19 @@
 // Пишет в CardSale (isImport=false), полностью заменяя «живые» продажи.
 // Bitrix-импортёр (import-bitrix.ts) CardSale НЕ трогает — только лиды.
 //
+// Атрибуция канала: в реестре нет UTM, поэтому канал продажи определяем
+// связкой «телефон карты → первый лид Bitrix с этим телефоном → канал лида»
+// (first-touch, покрытие ~95%). Нужен BITRIX_WEBHOOK_URL в окружении;
+// без него (или с --no-attr) source остаётся пустым.
+//
 //   npx tsx prisma/import-cards-registry.ts --csv=/path/to/cards.csv            # сухой прогон
 //   npx tsx prisma/import-cards-registry.ts --csv=/path/to/cards.csv --write
+//   npx tsx prisma/import-cards-registry.ts --csv=… --no-attr --write           # без Bitrix
 //
 // По умолчанию берём карты с 1 мая 2026 (--from=YYYY-MM-DD чтобы изменить).
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
+import { fetchPhoneChannelMap, normalizeMobile } from "../lib/attribution";
 
 const prisma = new PrismaClient({
   datasourceUrl: process.env.DIRECT_URL || process.env.DATABASE_URL,
@@ -16,6 +23,7 @@ const prisma = new PrismaClient({
 
 const args = process.argv.slice(2);
 const write = args.includes("--write");
+const noAttr = args.includes("--no-attr");
 const csvArg = args.find((a) => a.startsWith("--csv="));
 const urlArg = args.find((a) => a.startsWith("--url="));
 const fromArg = args.find((a) => a.startsWith("--from="));
@@ -69,7 +77,7 @@ async function main() {
   const R = parseCsv(raw);
   const H = R[0].map((s) => s.trim());
   const ix = (n: string) => H.indexOf(n);
-  const iFio = ix("ФИО"), iSum = ix("Сумма"), iCard = ix("VISA/Mastercard");
+  const iFio = ix("ФИО"), iSum = ix("Сумма"), iCard = ix("VISA/Mastercard"), iPhone = ix("Телефон");
   const countries: [string, string][] = [
     ["Бишкек", "Бакай (Киргизия)"],
     ["Узбекистан", "Узбекистан"],
@@ -79,7 +87,7 @@ async function main() {
   ];
   const ci = countries.map(([c, bank]) => [ix(c), bank] as [number, string]);
 
-  type Sale = { dealId: string; date: Date; amount: number; cardType: string | null; bank: string | null };
+  type Sale = { dealId: string; date: Date; amount: number; cardType: string | null; bank: string | null; phone: string | null; source: string | null };
   const sales: Sale[] = [];
   const dropped: { fio: string; amount: number; date: string }[] = [];
   let cur: string | null = null;
@@ -113,7 +121,24 @@ async function main() {
       amount: Math.round(amount),
       cardType: card || null,
       bank,
+      phone: iPhone >= 0 ? normalizeMobile(String(r[iPhone] || "")) : null,
+      source: null,
     });
+  }
+
+  // ---- атрибуция канала по лидам Bitrix (телефон → первый лид → канал) ----
+  const attrOn = !noAttr && !!process.env.BITRIX_WEBHOOK_URL;
+  if (attrOn) {
+    console.log("🔗 Атрибуция: тяну лиды Bitrix (все, seek-батчами)…");
+    const phoneCh = await fetchPhoneChannelMap((n) => {
+      if (n % 12500 === 0) console.log(`   …лидов получено: ${n}`);
+    });
+    console.log(`   лидов-телефонов в карте: ${phoneCh.size}`);
+    for (const s of sales) {
+      if (s.phone) s.source = phoneCh.get(s.phone) ?? null;
+    }
+  } else {
+    console.log(`⚠ Атрибуция каналов выключена (${noAttr ? "--no-attr" : "нет BITRIX_WEBHOOK_URL"}) — source будет пуст`);
   }
 
   const revenue = sales.reduce((s, x) => s + x.amount, 0);
@@ -132,6 +157,18 @@ async function main() {
     for (const d of dropped.slice(0, 3))
       console.log(`     ${d.date} · ${d.fio.slice(0, 24)} · ${d.amount.toLocaleString("ru")} ₽`);
   }
+  if (attrOn) {
+    const bySrc = new Map<string, { n: number; s: number }>();
+    for (const s of sales) {
+      const k = s.source ?? (s.phone ? "— лид не найден" : "— нет телефона");
+      const e = bySrc.get(k) || { n: 0, s: 0 };
+      e.n++; e.s += s.amount; bySrc.set(k, e);
+    }
+    const attributed = sales.filter((s) => s.source).length;
+    console.log(`  🔗 канал определён: ${attributed} из ${sales.length} (${sales.length ? Math.round((attributed / sales.length) * 100) : 0}%)`);
+    for (const [k, v] of [...bySrc.entries()].sort((a, b) => b[1].s - a[1].s))
+      console.log(`     ${k}: ${v.n} карт · ${v.s.toLocaleString("ru")} ₽`);
+  }
 
   if (!write) {
     console.log("\n💡 Сухой прогон — в базу НЕ записано. Для записи добавь --write");
@@ -149,7 +186,7 @@ async function main() {
       bank: s.bank,
       product: s.cardType,
       project: null,
-      source: null,
+      source: s.source,
       isImport: false,
     })),
     skipDuplicates: true,

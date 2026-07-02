@@ -88,6 +88,99 @@ export async function listAll(
   return out;
 }
 
+// Батч-вызов: до 50 команд одним HTTP-запросом (POST /batch.json).
+// cmd — относительные URL методов ("crm.lead.list?..."); внутри допустимы
+// ссылки $result[имя][индекс][поле] на результат предыдущей команды батча.
+export async function batchCall(
+  cmds: Record<string, string>
+): Promise<Record<string, unknown>> {
+  const BASE = base();
+  if (!BASE) throw new Error("BITRIX_WEBHOOK_URL не задан в .env");
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const res = await fetch(`${BASE}/batch.json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halt: 0, cmd: cmds }),
+      });
+      if (res.status === 200) {
+        const json = (await res.json()) as {
+          result?: { result?: Record<string, unknown> };
+        };
+        return json.result?.result || {};
+      }
+    } catch {
+      // сетевой обрыв — подождать и повторить
+    }
+    await sleep(800 * (attempt + 1));
+  }
+  throw new Error("Bitrix batch: превышен лимит повторов");
+}
+
+// Быстрый listAll: те же seek-страницы по ID, но пачками по 25 через batch
+// с цепочкой $result — в ~25 раз меньше HTTP-запросов (62К лидов ≈ 40 сек
+// против ~8 мин у listAll). Семантика результата идентична listAll.
+// НЕЛЬЗЯ переходить на offset-пагинацию (start=N): на этом портале она
+// молча возвращает пустоту после ~42 500 записей — теряются свежие лиды.
+export async function listAllFast(
+  method: string,
+  opts: { select: string[]; filter?: Record<string, string> } = { select: [] },
+  onProgress?: (fetched: number) => void
+): Promise<Dict[]> {
+  const select = opts.select.includes("ID")
+    ? opts.select
+    : ["ID", ...opts.select];
+  const PAGES = 25;
+  const sel = select.map((s, i) => `select[${i}]=${s}`).join("&");
+  const flt = Object.entries(opts.filter || {})
+    .map(([k, v]) => `filter${k}=${encodeURIComponent(v)}`)
+    .join("&");
+  // fromId подставляется в конец, чтобы $result-ссылка осталась сырой строкой
+  const pageCmd = (fromId: string) =>
+    `${method}?order[ID]=ASC&start=-1&${sel}${flt ? "&" + flt : ""}&filter[>ID]=${fromId}`;
+
+  const out: Dict[] = [];
+  let lastId = 0;
+  let done = false;
+  // защита от бесконечного цикла (4096 × 1250 = 5,12 млн записей)
+  for (let round = 0; round < 4096 && !done; round++) {
+    const cmds: Record<string, string> = { c0: pageCmd(String(lastId)) };
+    for (let i = 1; i < PAGES; i++)
+      cmds[`c${i}`] = pageCmd(`$result[c${i - 1}][49][ID]`);
+    const res = await batchCall(cmds);
+    for (let i = 0; i < PAGES; i++) {
+      const rows = (res[`c${i}`] as Dict[]) || [];
+      out.push(...rows);
+      if (rows.length) lastId = Number(rows[rows.length - 1].ID);
+      // неполная страница = конец данных; остаток батча — неразрешённые
+      // $result-ссылки, их результатам верить нельзя
+      if (rows.length < 50) {
+        done = true;
+        break;
+      }
+    }
+    onProgress?.(out.length);
+    if (!done) await sleep(300); // бережём лимит запросов
+  }
+  // Хвост одиночными страницами — на случай, если конец батча совпал с
+  // границей страницы и после «короткой» страницы данные всё же остались.
+  for (let page = 0; page < 100000; page++) {
+    const params: Dict = { "order[ID]": "ASC", start: -1 };
+    select.forEach((s, i) => (params[`select[${i}]`] = s));
+    for (const [k, v] of Object.entries(opts.filter || {}))
+      params[`filter${k}`] = v;
+    params["filter[>ID]"] = lastId;
+    const res = await call(method, params);
+    const rows = (res.result as Dict[]) || [];
+    if (!rows.length) break;
+    out.push(...rows);
+    lastId = Number(rows[rows.length - 1].ID);
+    if (rows.length < 50) break;
+    await sleep(120);
+  }
+  return out;
+}
+
 // Узнать total для фильтра (1 запрос).
 export async function totalFor(
   method: string,

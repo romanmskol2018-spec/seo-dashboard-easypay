@@ -7,6 +7,7 @@
 //   npm run import:bitrix -- --weeks=12 --write
 import { PrismaClient } from "@prisma/client";
 import { listAll, enumMap } from "../lib/bitrix";
+import { matchChannel, LEAD_SRC_FIELDS, SRC_KEYS, type SrcKey } from "../lib/attribution";
 
 // Для массовой записи используем ПРЯМОЕ подключение Neon (DIRECT_URL, без пулера):
 // пулер роняет коннект (P1017) на больших циклах записи.
@@ -18,10 +19,7 @@ const prisma = new PrismaClient({
 const LF = {
   metrika: "UF_CRM_1738066060271",
   project: "UF_CRM_1738064110267", // enum
-  istochnik: "UF_CRM_1779838134",
-  sistema: "UF_CRM_1779840045",
-  referer: "UF_CRM_1779841897",
-  direct: "UF_CRM_1779841908",
+  ...LEAD_SRC_FIELDS, // istochnik/sistema/referer/direct — общие с lib/attribution
   cardSum: "UF_CRM_CARD_SUM", // «Сумма продажи (реестр)» — реальная продажа карты
 };
 const DF = {
@@ -66,11 +64,7 @@ function mobiles(text: string): string[] {
   return [...out];
 }
 
-// ---------- источник (адаптировано под доступные поля Bitrix) ----------
-const SRC_KEYS = [
-  "seo", "recom", "direct", "klerk", "insta", "karty", "dzen", "youtube", "partner",
-] as const;
-type SrcKey = (typeof SRC_KEYS)[number];
+// ---------- источник (словарь каналов — в lib/attribution.ts) ----------
 
 type Lead = {
   id: string;
@@ -89,39 +83,16 @@ type Lead = {
 };
 
 function classify(rows: Lead[]): SrcKey | "unknown" {
-  const blob = rows
-    .map((r) => [r.utmS, r.utmM, r.ist, r.sys, r.ref].join(" "))
-    .join(" ")
-    .toLowerCase();
-  const utmM = rows.map((r) => r.utmM.toLowerCase()).join(" ");
-  const utmS = rows.map((r) => r.utmS.toLowerCase()).join(" ");
-  const src = rows.map((r) => r.src.toLowerCase()).join(" ");
-  const directAd = rows.some((r) => r.direct);
-
-  if (blob.includes("klerk")) return "klerk";
-  if (blob.includes("dzen") || blob.includes("дзен")) return "dzen";
-  if (blob.includes("youtube") || blob.includes("ютуб") || blob.includes("youtu"))
-    return "youtube";
-  if (utmS.includes("instagram") || utmS === "ig" || blob.includes("instagram") || blob.includes("соц"))
-    return "insta";
-  if (blob.includes("2gis") || blob.includes("karty") || blob.includes("карты"))
-    return "karty";
-  if (blob.includes("partner") || blob.includes("партн") || blob.includes("affiliate"))
-    return "partner";
-  if (utmM.includes("cpc") || blob.includes("ya_direct") || blob.includes("реклама") || directAd)
-    return "direct";
-  if (
-    utmM.includes("organic") ||
-    /\b(google|yandex|bing)\b/.test(blob) ||
-    blob.includes("seo")
-  )
-    return "seo";
-  if (
-    src.includes("repeat_sale") || src.includes("call") || src.includes("connector") ||
-    blob.includes("прям") || blob.includes("recommend") || blob.includes("повтор")
-  )
-    return "recom";
-  return "unknown";
+  return matchChannel({
+    blob: rows
+      .map((r) => [r.utmS, r.utmM, r.ist, r.sys, r.ref].join(" "))
+      .join(" ")
+      .toLowerCase(),
+    utmS: rows.map((r) => r.utmS.toLowerCase()).join(" "),
+    utmM: rows.map((r) => r.utmM.toLowerCase()).join(" "),
+    src: rows.map((r) => r.src.toLowerCase()).join(" "),
+    directAd: rows.some((r) => r.direct),
+  });
 }
 function isGoogle(rows: Lead[]): boolean {
   return rows.some((r) => (r.utmS + r.sys).toLowerCase().includes("google"));

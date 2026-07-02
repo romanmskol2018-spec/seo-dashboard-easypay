@@ -21,6 +21,7 @@ import { VisibilityChart } from "@/components/VisibilityChart";
 import { FunnelChart } from "@/components/FunnelChart";
 import { ChannelMix } from "@/components/ChannelMix";
 import { RevenueBars } from "@/components/RevenueBars";
+import { SalesByChannel } from "@/components/SalesByChannel";
 import { GlobalDatePicker } from "@/components/GlobalDatePicker";
 import { SeoFunnel } from "@/components/SeoFunnel";
 import {
@@ -396,6 +397,10 @@ export default async function DashboardPage(props: {
             sub="реально проданные карты из реестра (по дате продажи)"
           />
           <div className="grid lg:grid-cols-2 gap-5">
+            {/* Выручка по каналам — только когда атрибуция уже прогнана */}
+            {sales.bySource.some((r) => r.source) && (
+              <SalesByChannel rows={sales.bySource} />
+            )}
             {sales.byWeek.length > 0 && <RevenueBars weeks={sales.byWeek} />}
             <div className="bg-surface border border-border rounded-2xl p-6 overflow-x-auto">
               <h3 className="font-medium mb-1 text-sm">Тип карты по банку</h3>
