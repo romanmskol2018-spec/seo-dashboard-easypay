@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { formatDateShort } from "@/lib/format";
+import { PROJECT_MAP, type LeadProject } from "@/lib/projects";
+
+// Домен сайта дашборда для проекта лидов (null = сайта нет, напр. AVO.cards)
+function projectDomain(project: string): string | null {
+  return PROJECT_MAP[project as LeadProject]?.domain ?? null;
+}
 
 export type SiteSummary = {
   id: string;
@@ -272,15 +278,20 @@ export type SalesData = {
 
 // Продажи карт = живые оплаченные сделки (без импорта истории).
 // fromIso/toIso — ограничить окном (для сквозного периода воронки).
+// project ≠ "ALL" — только карты этого проекта (project приходит из
+// атрибуции реестра: телефон → лид Bitrix → проект лида).
 export async function getSalesData(
   fromIso?: string,
-  toIso?: string
+  toIso?: string,
+  project: string = "ALL"
 ): Promise<SalesData> {
   const where: {
     isImport: boolean;
     amount: { gt: number };
     date?: { gte?: Date; lte?: Date };
+    project?: string;
   } = { isImport: false, amount: { gt: 0 } };
+  if (project !== "ALL") where.project = project;
   if (fromIso || toIso) {
     where.date = {};
     if (fromIso) where.date.gte = new Date(fromIso);
@@ -370,10 +381,11 @@ export type FunnelData = {
 
 export async function getFunnelData(
   fromIso: string | null = null,
-  toIso: string | null = null
+  toIso: string | null = null,
+  project: string = "ALL"
 ): Promise<FunnelData> {
   const allRows = await prisma.leadStat.findMany({
-    where: { project: "ALL" },
+    where: { project },
     orderBy: { weekStart: "asc" },
   });
   // Текущее окно = недели в [from, to]; предыдущее = столько же недель до него
@@ -427,7 +439,9 @@ export async function getFunnelData(
     isImport: boolean;
     amount: { gt: number };
     date?: { gte: Date; lte: Date };
+    project?: string;
   } = { isImport: false, amount: { gt: 0 } };
+  if (project !== "ALL") salesWhere.project = project;
   if (first && lastEnd) salesWhere.date = { gte: first, lte: lastEnd };
   const sales = await prisma.cardSale.findMany({ where: salesWhere });
   const salesCount = sales.length;
@@ -442,21 +456,37 @@ export async function getFunnelData(
     const pEnd = new Date(pLast);
     pEnd.setUTCDate(pEnd.getUTCDate() + 6);
     const pSales = await prisma.cardSale.findMany({
-      where: { isImport: false, amount: { gt: 0 }, date: { gte: pFirst, lte: pEnd } },
+      where: {
+        isImport: false,
+        amount: { gt: 0 },
+        date: { gte: pFirst, lte: pEnd },
+        ...(project !== "ALL" ? { project } : {}),
+      },
     });
     pSalesCount = pSales.length;
     pRevenue = pSales.reduce((s, x) => s + x.amount, 0);
   }
 
-  // Визиты текущего окна
+  // Визиты текущего окна. Для проекта — только его сайт; у проекта без
+  // сайта в дашборде (AVO.cards) визитов нет → null (этап скрывается).
   let visits: number | null = null;
   if (first && lastEnd) {
-    const traffic = await prisma.trafficData.findMany({
-      where: { source: "all", date: { gte: first, lte: lastEnd } },
-    });
-    visits = traffic.length
-      ? traffic.reduce((s, t) => s + t.visits, 0)
-      : null;
+    let siteFilter: { siteId?: string } | null = {};
+    if (project !== "ALL") {
+      const domain = projectDomain(project);
+      const site = domain
+        ? await prisma.site.findFirst({ where: { domain } })
+        : null;
+      siteFilter = site ? { siteId: site.id } : null;
+    }
+    if (siteFilter) {
+      const traffic = await prisma.trafficData.findMany({
+        where: { source: "all", date: { gte: first, lte: lastEnd }, ...siteFilter },
+      });
+      visits = traffic.length
+        ? traffic.reduce((s, t) => s + t.visits, 0)
+        : null;
+    }
   }
 
   return {
@@ -489,7 +519,8 @@ export async function getDashboardData(
   fromIso: string,
   toIso: string,
   group: Granularity = "day",
-  engine: string = "Яндекс"
+  engine: string = "Яндекс",
+  project: string = "ALL"
 ): Promise<DashboardData> {
   const DAY_MS = 86400000;
   const rangeStart = startOfDayUTC(new Date(fromIso));
@@ -498,9 +529,19 @@ export async function getDashboardData(
   const prevEnd = new Date(rangeStart.getTime() - DAY_MS);
   const prevStart = new Date(prevEnd.getTime() - (days - 1) * DAY_MS);
 
-  const [sites, projects, traffic, visibility] = await Promise.all([
+  let [sites, projects] = await Promise.all([
     prisma.site.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.project.findMany({ orderBy: { createdAt: "asc" } }),
+  ]);
+  // Глобальный фильтр проекта: оставляем его сайт (трафик) и проект
+  // Топвизора (видимость) по карте соответствий. У AVO.cards их нет —
+  // секции честно покажут «нет данных».
+  if (project !== "ALL") {
+    const m = PROJECT_MAP[project as LeadProject];
+    sites = sites.filter((s) => !!m?.domain && s.domain === m.domain);
+    projects = projects.filter((p) => !!m?.topvisor && p.name === m.topvisor);
+  }
+  const [traffic, visibility] = await Promise.all([
     prisma.trafficData.findMany({
       where: { source: "all", date: { gte: prevStart } },
       orderBy: { date: "asc" },

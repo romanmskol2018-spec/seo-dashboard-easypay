@@ -10,7 +10,9 @@ type Row = { source: string | null; cards: number; revenue: number };
 const META: Record<string, { label: string; color: string }> = {
   seo: { label: "SEO", color: "#22c55e" },
   direct: { label: "Директ", color: "#3b82f6" },
-  recom: { label: "Прямые/повторные", color: "#a855f7" },
+  messenger: { label: "Мессенджеры", color: "#06b6d4" },
+  call: { label: "Звонки", color: "#eab308" },
+  recom: { label: "Повторные/прямые", color: "#a855f7" },
   klerk: { label: "Клерк", color: "#f59e0b" },
   insta: { label: "Инста", color: "#ec4899" },
   karty: { label: "Карты", color: "#14b8a6" },
@@ -70,9 +72,10 @@ export function SalesByChannel({ rows }: { rows: Row[] }) {
         </div>
       )}
       <p className="text-muted text-[11px] mt-4">
-        «Прямые/повторные» — звонки, повторные обращения, прямые заходы.
-        «Без метки» — лид найден, но без метки источника. «Не определён» —
-        в реестре нет телефона или лид не нашёлся.
+        «Мессенджеры» и «Звонки» — клиент написал/позвонил сам, откуда узнал —
+        неизвестно. Если у клиента есть лид с явной меткой (SEO, Директ…) —
+        считается она. «Не определён» — в реестре нет телефона или лид не
+        нашёлся.
       </p>
     </div>
   );
